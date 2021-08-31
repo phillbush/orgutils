@@ -70,14 +70,14 @@ and a warning is printed to stderr.
 Consider the following input.
 .IP
 .EX
-DONE graph:  (B) Learn graphs.
-TODO manual: (C) Write manual for todo(1).
-TODO sort:   (B) Learn how to do topological sorting.    deps:graph
-TODO data:   (A) Implement data structures for tasks.
-TODO parser: (B) Write code for parsing tasks.           deps:data
-TODO algor:  (A) Implement algorithm for sorting tasks.  deps:data,sort
-TODO todo:   (B) Write the todo(1) utility.              deps:parser,algor
-TODO review: (C) Release todo(1) in codereview.          deps:todo,manual
+DONE graph:   (B) Learn graphs.
+TODO manual:  (C) Write manual for todo(1).
+TODO sort:    (B) Learn how to do topological sorting.    deps:graph
+TODO data:    (A) Implement data structures for tasks.
+TODO parser:  (B) Write code for parsing tasks.           deps:data
+TODO algor:   (A) Implement algorithm for sorting tasks.  deps:data,sort
+TODO todo:    (B) Write the todo(1) utility.              deps:parser,algor
+TODO release: (C) Release todo(1).                        deps:todo,manual
 .EE
 .PP
 Running
