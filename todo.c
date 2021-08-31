@@ -10,10 +10,10 @@
 #include <unistd.h>
 
 #define SECS_PER_DAY  ((time_t)(24 * 60 * 60))
+#define DAYS_PER_WEEK 7
+#define MIDDAY        12                /* 12:00 */
 #define NHASH         128               /* size of hash table */
 #define MULTIPLIER    31                /* multiplier for hash table */
-#define MIDDAY        12
-#define DEFPRI        1                 /* default priority, the lower the better */
 #define NCOLS         10                /* number of collumns reserved for task name in long format */
 #define TODO          "TODO"
 #define DONE          "DONE"
@@ -251,9 +251,19 @@ addtask(struct Agenda *agenda, char *s)
 		return;
 	while (isspace(*(unsigned char *)s))
 		s++;
-	pri = DEFPRI;
-	if (s[0] == '(' && s[1] >= 'A' && s[1] <= 'Z' && s[2] == ')') {
-		pri = s[1] - 'A' + 1;
+	pri = 0;
+	if (s[0] == '(' && s[1] >= 'A' && s[1] <= 'C' && s[2] == ')') {
+		switch (s[1]) {
+		case 'A':
+			pri = +1;
+			break;
+		default:
+			pri = 0;
+			break;
+		case 'C':
+			pri = -1;
+			break;
+		}
 		s += 3;
 	}
 	task = lookup(agenda, name);
@@ -339,15 +349,31 @@ comparetask(const void *a, const void *b)
 
 	taska = *(struct Task **)a;
 	taskb = *(struct Task **)b;
-	tmpa = (taska->due != 0) ? (today - taska->due) / SECS_PER_DAY : 1;
-	tmpb = (taskb->due != 0) ? (today - taskb->due) / SECS_PER_DAY : 1;
-	timea = timeb = 1;
-	while (tmpa >>= 1)
-		++timea;
-	while (tmpb >>= 1)
-		++timeb;
-	timea *= taska->pri;
-	timeb *= taskb->pri;
+	tmpa = (taska->due != 0) ? (taska->due - today) / SECS_PER_DAY : DAYS_PER_WEEK;
+	tmpb = (taskb->due != 0) ? (taskb->due - today) / SECS_PER_DAY : DAYS_PER_WEEK;
+	timea = timeb = 0;
+	if (tmpa < 0) {
+		tmpa = -tmpa;
+		while (tmpa >>= 1) {
+			--timea;
+		}
+	} else {
+		while (tmpa >>= 1) {
+			++timea;
+		}
+	}
+	if (tmpb < 0) {
+		tmpb = -tmpb;
+		while (tmpb >>= 1) {
+			--timeb;
+		}
+	} else {
+		while (tmpb >>= 1) {
+			++timeb;
+		}
+	}
+	timea -= taska->pri;
+	timeb -= taskb->pri;
 	if (timea < timeb)
 		return -1;
 	if (timea > timeb)
@@ -405,7 +431,7 @@ printtasks(struct Agenda *agenda)
 		if (lflag) {
 			n = printf("%s", task->name);
 			n = (n > 0 && n < NCOLS) ? NCOLS - n : 0;
-			(void)printf(":%*c (%c) %s", n, ' ', task->pri + 'A' - 1, task->desc);
+			(void)printf(":%*c (%c) %s", n, ' ', (task->pri < 0 ? 'C' : (task->pri > 0 ? 'A' : 'B')), task->desc);
 			if (task->date != NULL) {
 				(void)printf(" due:%s", task->date);
 			}
