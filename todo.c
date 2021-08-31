@@ -265,12 +265,17 @@ addtask(struct Agenda *agenda, char *s)
 
 /* read tasks from fp into agenda */
 static void
-readtasks(FILE *fp, struct Agenda *agenda)
+readtasks(FILE *fp, struct Agenda *agenda, char *filename, int *exitval)
 {
 	char buf[BUFSIZ];
 
 	while (fgets(buf, sizeof(buf), fp) != NULL) {
 		addtask(agenda, buf);
+	}
+	if (ferror(fp)) {
+		warn("%s", filename);
+		*exitval = 1;
+		clearerr(fp);
 	}
 }
 
@@ -358,18 +363,28 @@ printtasks(struct Agenda *agenda)
 	for (i = 0; i < agenda->nunblock; i++) {
 		task = agenda->array[i];
 		if (lflag) {
-			n = printf("%s", task->name);
+			if ((n = printf("%s", task->name)) < 0)
+				break;
 			n = (n > 0 && n < NCOLS) ? NCOLS - n : 0;
-			(void)printf(":%*c (%c) %s", n, ' ',
+			if (printf(":%*c (%c) %s", n, ' ',
 			             (task->pri < 0 ? 'C' : (task->pri > 0 ? 'A' : 'B')),
-			             task->desc);
+			             task->desc) < 0)
+				break;
 			if (task->date != NULL) {
-				(void)printf(" due:%s", task->date);
+				if (printf(" due:%s", task->date) < 0) {
+					break;
+				}
 			}
 		} else {
-			(void)printf("%s", task->desc);
+			if (printf("%s", task->desc) < 0)
+				break;
 		}
-		printf("\n");
+		if (printf("\n") < 0) {
+			break;
+		}
+	}
+	if (ferror(stdout)) {
+		err(1, "stdout");
 	}
 }
 
@@ -429,11 +444,11 @@ main(int argc, char *argv[])
 	agenda = ecalloc(1, sizeof(*agenda));
 	agenda->htab = ecalloc(NHASH, sizeof(*(agenda->htab)));
 	if (argc == 0) {
-		readtasks(stdin, agenda);
+		readtasks(stdin, agenda, "stdin", &exitval);
 	} else {
 		for (; *argv != NULL; argv++) {
 			if (strcmp(*argv, "-") == 0) {
-				readtasks(stdin, agenda);
+				readtasks(stdin, agenda, "stdin", &exitval);
 				continue;
 			}
 			if ((fp = fopen(*argv, "r")) == NULL) {
@@ -441,7 +456,7 @@ main(int argc, char *argv[])
 				exitval = 1;
 				continue;
 			}
-			readtasks(fp, agenda);
+			readtasks(fp, agenda, *argv, &exitval);
 			fclose(fp);
 		}
 	}
