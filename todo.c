@@ -8,10 +8,9 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include "util.h"
 
-#define SECS_PER_DAY  ((time_t)(24 * 60 * 60))
 #define DEFDAYS       8                 /* default days til deadline for tasks without deadline */
-#define MIDDAY        12                /* 12:00 */
 #define NHASH         128               /* size of hash table */
 #define MULTIPLIER    31                /* multiplier for hash table */
 #define NCOLS         10                /* number of collumns reserved for task name in long format */
@@ -23,12 +22,11 @@
 /* task structure */
 struct Task {
 	struct Task *hnext;             /* pointer for hash table linked list */
-	struct Task *unext;             /* pointer for unsorted linked list */
-	struct Task *snext;             /* pointer for sorted linked list */
+	struct Task *next;              /* pointer for linked list */
 	struct Edge *deps;              /* linked list of dependency edges */
 	time_t due;                     /* due date, at 12:00 */
+	int init;                       /* whether task was initialized */
 	int pri;                        /* priority */
-	int visited;                    /* whether node was visited while sorting */
 	int done;                       /* whether task is marked as done */
 	char *date;                     /* due date, in format YYYY-MM-DD*/
 	char *name;                     /* task name */
@@ -45,9 +43,9 @@ struct Edge {
 struct Agenda {
 	struct Task **htab;             /* hash table of tasks */
 	struct Task **array;            /* array of sorted, unblocked tasks */
-	struct Task *unsort;            /* head of unsorted list of tasks */
-	struct Task *shead, *stail;     /* head and tail of sorted list of tasks */
+	struct Task *list;              /* head of list of tasks */
 	size_t nunblock;                /* number of unblocked tasks */
+	size_t ntasks;                  /* number of tasks */
 };
 
 /* time for today, 12:00 */
@@ -61,41 +59,8 @@ static int lflag;                       /* whether to display tasks in long form
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: todo [-ld] [file...]\n");
+	(void)fprintf(stderr, "usage: todo [-ld] [-t yyyymmdd] [file...]\n");
 	exit(1);
-}
-
-/* call malloc checking for error */
-static void *
-emalloc(size_t size)
-{
-	void *p;
-
-	if ((p = malloc(size)) == NULL)
-		err(1, "malloc");
-	return p;
-}
-
-/* call calloc checking for error */
-static void *
-ecalloc(size_t nmemb, size_t size)
-{
-	void *p;
-
-	if ((p = calloc(nmemb, size)) == NULL)
-		err(1, "calloc");
-	return p;
-}
-
-/* call strdup checking for error */
-static char *
-estrdup(const char *s)
-{
-	char *t;
-
-	if ((t = strdup(s)) == NULL)
-		err(1, "strdup");
-	return t;
 }
 
 /* get time for today, at 12:00 */
@@ -135,7 +100,7 @@ hash(const char *s)
 
 /* find name in agenda, creating if does not exist */
 static struct Task *
-lookup(struct Agenda *agenda, const char *name)
+lookupcreate(struct Agenda *agenda, const char *name)
 {
 	size_t h;
 	struct Task *p;
@@ -147,21 +112,11 @@ lookup(struct Agenda *agenda, const char *name)
 	p = emalloc(sizeof(*p));
 	p->name = estrdup(name);
 	p->hnext = agenda->htab[h];
-	p->unext = agenda->unsort;
+	p->next = agenda->list;
 	agenda->htab[h] = p;
-	agenda->unsort = p;
+	agenda->list = p;
+	agenda->ntasks++;
 	return p;
-}
-
-/* create agenda and hash table */
-static struct Agenda *
-newagenda(void)
-{
-	struct Agenda *agenda;
-
-	agenda = ecalloc(1, sizeof(*agenda));
-	agenda->htab = ecalloc(NHASH, sizeof(*(agenda->htab)));
-	return agenda;
 }
 
 /* add dependencies to task; we change s */
@@ -173,7 +128,7 @@ adddeps(struct Agenda *agenda, struct Task *task, char *s)
 	char *t;
 
 	for (t = strtok(s, ","); t != NULL; t = strtok(NULL, ",")) {
-		tmp = lookup(agenda, t);
+		tmp = lookupcreate(agenda, t);
 		edge = emalloc(sizeof(*edge));
 		edge->next = task->deps;
 		edge->to = tmp;
@@ -266,7 +221,8 @@ addtask(struct Agenda *agenda, char *s)
 		}
 		s += 3;
 	}
-	task = lookup(agenda, name);
+	task = lookupcreate(agenda, name);
+	task->init = 1;
 	task->pri = pri;
 	task->done = done;
 	while (isspace(*(unsigned char *)s))
@@ -318,27 +274,6 @@ readtasks(FILE *fp, struct Agenda *agenda)
 	}
 }
 
-/* visit task and their dependencies */
-static void
-visittask(struct Agenda *agenda, struct Task *task)
-{
-	struct Edge *edge;
-
-	if (task->visited > 1)
-		return;
-	if (task->visited == 1)
-		errx(1, "cyclic dependency between tasks");
-	task->visited = 1;
-	for (edge = task->deps; edge != NULL; edge = edge->next)
-		visittask(agenda, edge->to);
-	task->visited = 2;
-	if (agenda->shead == NULL)
-		agenda->shead = task;
-	if (agenda->stail != NULL)
-		agenda->stail->snext = task;
-	agenda->stail = task;
-}
-
 /* compare tasks */
 static int
 comparetask(const void *a, const void *b)
@@ -387,18 +322,12 @@ sorttasks(struct Agenda *agenda)
 {
 	struct Task *task;
 	struct Edge *edge;
-	size_t ntasks;
 	int cont;
 
-	free(agenda->htab);
-	ntasks = 0;
-	for (task = agenda->unsort; task != NULL; task = task->unext) {
-		if (!task->visited)
-			visittask(agenda, task);
-		ntasks++;
-	}
-	agenda->array = ecalloc(ntasks, sizeof(*agenda->array));
-	for (task = agenda->shead; task != NULL; task = task->snext) {
+	agenda->array = ecalloc(agenda->ntasks, sizeof(*agenda->array));
+	for (task = agenda->list; task != NULL; task = task->next) {
+		if (!task->init)
+			errx(1, "task \"%s\" mentioned but not defined", task->name);
 		if (task->done)
 			continue;
 		if (task->deps != NULL) {
@@ -451,14 +380,14 @@ freeagenda(struct Agenda *agenda)
 	struct Task *task, *ttmp;
 	struct Edge *edge, *etmp;
 
-	for (task = agenda->unsort; task != NULL; ) {
+	for (task = agenda->list; task != NULL; ) {
 		for (edge = task->deps; edge != NULL; ) {
 			etmp = edge;
 			edge = edge->next;
 			free(etmp);
 		}
 		ttmp = task;
-		task = task->unext;
+		task = task->next;
 		free(ttmp->name);
 		free(ttmp->desc);
 		free(ttmp->date);
@@ -477,7 +406,7 @@ main(int argc, char *argv[])
 	int exitval, ch;
 
 	today = gettoday();
-	while ((ch = getopt(argc, argv, "dl")) != -1) {
+	while ((ch = getopt(argc, argv, "dlt:")) != -1) {
 		switch (ch) {
 		case 'd':
 			dflag = 1;
@@ -485,15 +414,20 @@ main(int argc, char *argv[])
 		case 'l':
 			lflag = 1;
 			break;
+		case 't':
+			today = strtotime(optarg);
+			break;
 		default:
 			usage();
 			break;
 		}
 	}
+	today += SECS_PER_DAY;
 	argc -= optind;
 	argv += optind;
 	exitval = 0;
-	agenda = newagenda();
+	agenda = ecalloc(1, sizeof(*agenda));
+	agenda->htab = ecalloc(NHASH, sizeof(*(agenda->htab)));
 	if (argc == 0) {
 		readtasks(stdin, agenda);
 	} else {
@@ -511,6 +445,7 @@ main(int argc, char *argv[])
 			fclose(fp);
 		}
 	}
+	free(agenda->htab);
 	sorttasks(agenda);
 	printtasks(agenda);
 	freeagenda(agenda);

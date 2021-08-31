@@ -3,19 +3,21 @@ MANPREFIX = ${PREFIX}/share/man
 
 PROGS = calendar todo
 MANS = ${PROGS:=.1}
-OBJS = ${PROGS:=.o}
+OBJS = ${PROGS:=.o} util.o
 
 CPPFLAGS = -D_POSIX_C_SOURCE=200809L
-CFLAGS = -Wall -Wextra ${CPPFLAGS}
+CFLAGS = -g -O0 -Wall -Wextra ${CPPFLAGS}
 LDFLAGS = -lm
 
 all: ${PROGS}
 
-calendar: calendar.o
-	${CC} -o $@ calendar.o ${LDFLAGS}
+calendar: calendar.o util.o
+	${CC} -o $@ calendar.o util.o ${LDFLAGS}
 
-todo: todo.o
-	${CC} -o $@ todo.o ${LDFLAGS}
+todo: todo.o util.o
+	${CC} -o $@ todo.o util.o ${LDFLAGS}
+
+${OBJS}: util.h
 
 .c.o:
 	${CC} ${CFLAGS} -c $<
