@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #define SECS_PER_DAY  ((time_t)(24 * 60 * 60))
-#define DAYS_PER_WEEK 7
+#define DEFDAYS       8                 /* default days til deadline for tasks without deadline */
 #define MIDDAY        12                /* 12:00 */
 #define NHASH         128               /* size of hash table */
 #define MULTIPLIER    31                /* multiplier for hash table */
@@ -349,8 +349,8 @@ comparetask(const void *a, const void *b)
 
 	taska = *(struct Task **)a;
 	taskb = *(struct Task **)b;
-	tmpa = (taska->due != 0) ? (taska->due - today) / SECS_PER_DAY : DAYS_PER_WEEK;
-	tmpb = (taskb->due != 0) ? (taskb->due - today) / SECS_PER_DAY : DAYS_PER_WEEK;
+	tmpa = (taska->due != 0) ? (taska->due - today) / SECS_PER_DAY : DEFDAYS;
+	tmpb = (taskb->due != 0) ? (taskb->due - today) / SECS_PER_DAY : DEFDAYS;
 	timea = timeb = 0;
 	if (tmpa < 0) {
 		tmpa = -tmpa;
@@ -431,7 +431,9 @@ printtasks(struct Agenda *agenda)
 		if (lflag) {
 			n = printf("%s", task->name);
 			n = (n > 0 && n < NCOLS) ? NCOLS - n : 0;
-			(void)printf(":%*c (%c) %s", n, ' ', (task->pri < 0 ? 'C' : (task->pri > 0 ? 'A' : 'B')), task->desc);
+			(void)printf(":%*c (%c) %s", n, ' ',
+			             (task->pri < 0 ? 'C' : (task->pri > 0 ? 'A' : 'B')),
+			             task->desc);
 			if (task->date != NULL) {
 				(void)printf(" due:%s", task->date);
 			}
