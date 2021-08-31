@@ -81,25 +81,26 @@ and a warning is printed to stderr.
 Consider the following input.
 .IP
 .EX
-DONE graph:   (B) Learn graphs.
-TODO manual:  (C) Write manual for todo(1).
-TODO sort:    (B) Learn how to do topological sorting.    deps:graph
-TODO data:    (A) Implement data structures for tasks.
-TODO parser:  (B) Write code for parsing tasks.           deps:data
-TODO algor:   (A) Implement algorithm for sorting tasks.  deps:data,sort
-TODO todo:    (B) Write the todo(1) utility.              deps:parser,algor
-TODO release: (C) Release todo(1).                        deps:todo,manual
+DONE project: (B) Initial project for todo(1).
+TODO manual:  (C) Write manual for todo(1).              due:2021-09-03
+TODO usage:   (B) Think in a interface for todo(1)
+TODO data:    (A) Implement data structures for tasks.   deps:project
+TODO parser:  (B) Write code for parsing tasks.          deps:data
+TODO algor:   (A) Implement algorithm for sorting tasks. deps:parser
+TODO todo:    (B) Write the todo(1) utility.             deps:parser,algor
+TODO review:  (C) Release todo(1) in codereview.         deps:todo,manual
 .EE
-.PP
-Running
-.B todo
-with the option \-l on this input would print the following:
+If today were 01 September 2021,
+then running calendar with the option -l on this input would print the following:
 .IP
 .EX
+manual:     (C) Write manual for todo(1). due:2021-09-03
 data:       (A) Implement data structures for tasks.
-sort:       (B) Learn how to do topological sorting.
-manual:     (C) Write manual for todo(1).
+usage:      (B) Think in a interface for todo(1)
 .EE
+.PP
+Note that, although the \(lqmanual\(rq task has low priority (C),
+it is listed first because its deadline is near.
 .SH SEE ALSO
 .IR calendar (1),
 .IR schedule (1)
