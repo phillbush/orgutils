@@ -299,8 +299,8 @@ comparetask(const void *a, const void *b)
 
 	taska = *(struct Task **)a;
 	taskb = *(struct Task **)b;
-	tmpa = (taska->due != 0) ? (taska->due - today) / SECS_PER_DAY : DEFDAYS;
-	tmpb = (taskb->due != 0) ? (taskb->due - today) / SECS_PER_DAY : DEFDAYS;
+	tmpa = (taska->due != 0) ? difftime(taska->due, today) / SECS_PER_DAY - 1 : DEFDAYS;
+	tmpb = (taskb->due != 0) ? difftime(taskb->due, today) / SECS_PER_DAY - 1 : DEFDAYS;
 	timea = timeb = 0;
 	if (tmpa < 0) {
 		tmpa = -tmpa;
@@ -447,7 +447,6 @@ main(int argc, char *argv[])
 			break;
 		}
 	}
-	today += SECS_PER_DAY;
 	argc -= optind;
 	argv += optind;
 	exitval = 0;
