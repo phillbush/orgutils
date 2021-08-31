@@ -182,6 +182,7 @@ addtask(struct Agenda *agenda, char *s)
 	char *t, *end, *colon;
 	int pri;
 
+	/* get status */
 	while (isspace(*(unsigned char *)s))
 		s++;
 	done = 0;
@@ -191,6 +192,8 @@ addtask(struct Agenda *agenda, char *s)
 		done = 1;
 		s += sizeof(DONE) - 1;
 	}
+
+	/* get name and create task */
 	while (isspace(*(unsigned char *)s))
 		s++;
 	name = NULL;
@@ -204,6 +207,9 @@ addtask(struct Agenda *agenda, char *s)
 	}
 	if (name == NULL)
 		return;
+	task = lookupcreate(agenda, name);
+
+	/* get priority */
 	while (isspace(*(unsigned char *)s))
 		s++;
 	pri = 0;
@@ -221,10 +227,8 @@ addtask(struct Agenda *agenda, char *s)
 		}
 		s += 3;
 	}
-	task = lookupcreate(agenda, name);
-	task->init = 1;
-	task->pri = pri;
-	task->done = done;
+
+	/* get properties */
 	while (isspace(*(unsigned char *)s))
 		s++;
 	len = strlen(s);
@@ -256,11 +260,17 @@ addtask(struct Agenda *agenda, char *s)
 			break;
 		}
 	}
+
+	/* get description */
 	len = strlen(s);
 	for (t = &s[len - 1]; isspace(*(unsigned char *)t) && t >= s; t--)
 		*t = '\0';
-	free(task->desc);
+
+	free(task->desc);               /* in case we are overriding an existing task */
 	task->desc = estrdup(s);
+	task->init = 1;
+	task->pri = pri;
+	task->done = done;
 }
 
 /* read tasks from fp into agenda */
