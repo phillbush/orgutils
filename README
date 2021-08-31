@@ -1,0 +1,18 @@
+                               orgutils:
+                    Personal Organization Utilities
+
+orgutils are a set of utilities for personal and project organization.
+Each program has its respective manual page.
+
+The programs are the following.
+• calendar:     Print upcoming events.
+• todo:         Print next tasks.
+• schedule:     Convert tasks into events.
+• agenda:       Print calendar, events and tasks for current project.
+
+These programs were written to be scriptable.  They are non-interactive
+filters that do not do colored output or other forms of pretty-printing,
+so their output can be used by other utilities, in a shell pipeline for
+example.
+
+This software is in public domain and is provided AS IS, with NO WARRANTY.

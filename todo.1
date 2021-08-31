@@ -1,0 +1,94 @@
+.TH TODO 1
+.SH NAME
+todo \- print next tasks
+.SH SYNOPSIS
+.B todo
+.RB [ \-dl ]
+.IR file ...
+.SH DESCRIPTION
+.B todo
+reads files for tasks, one task per line;
+and writes to the standard output those tasks that should be done,
+and that are not blocked by other undone tasks.
+The tasks are ordered in decrescend order of urgency
+(the most urgent task is the first listed).
+If a hyphen (-) is provided as argument or the argument is absent,
+.B todo
+reads from the standard input.
+The options are as follows:
+.TP
+.B \-d
+Consider tasks whose deadline has already passed as done,
+even if they are not explicitly set as done.
+.TP
+.B \-l
+Long format.
+Display tasks with its internal name, priority and deadline.
+.PP
+Each event must begin with an optional status.
+Two status are possible:
+.I TODO
+(which defines a uncompleted task)
+or
+.I DONE
+(which defines a completed task).
+If no status is supplied, it is considered as
+.IR TODO .
+.PP
+After the optional status comes the optional priority.
+The priority is a single uppercase letter between parentheses.
+The lower the letter, the higher the priority;
+so \(lqA\(rq is the higher priority.
+The higher the priority, the first the task will be listed.
+.PP
+After the optional priority comes the obligatory task name.
+The task name is a single alphanumeric word without spaces that names the task.
+The task name must be followed by a colon.
+.PP
+After the task name comes the optional task description.
+The task description spans from the space after the colon that ends the task name
+to the beginning of the first property.
+.PP
+After the optional task description comes the properties.
+Properties are a space-delimited list of name-value pairs separated by colon.
+The following property names and their respective values are listed below.
+.TP
+.B due
+A property of the form
+.I due:YYYY-MM-DD
+specifies the deadline of the task.
+.TP
+.B deps
+A property of the form
+.I deps:dep1,dep2,…,depN
+specifies a comma-delimited list of tasks that this task depends on.
+.PP
+If a task line ends in a backslash (\e), the task continues in the next line.
+If a line does not match the format of a task specification, that line is ignored
+and a warning is printed to stderr.
+.SH EXAMPLES
+Consider the following input.
+.IP
+.EX
+DONE graph:  (B) Learn graphs.
+TODO manual: (C) Write manual for todo(1).
+TODO sort:   (B) Learn how to do topological sorting.    deps:graph
+TODO data:   (A) Implement data structures for tasks.
+TODO parser: (B) Write code for parsing tasks.           deps:data
+TODO algor:  (A) Implement algorithm for sorting tasks.  deps:data,sort
+TODO todo:   (B) Write the todo(1) utility.              deps:parser,algor
+TODO review: (C) Release todo(1) in codereview.          deps:todo,manual
+.EE
+.PP
+Running
+.B todo
+with the option \-l on this input would print the following:
+.IP
+.EX
+data:       (A) Implement data structures for tasks.
+sort:       (B) Learn how to do topological sorting.
+manual:     (C) Write manual for todo(1).
+.EE
+.SH SEE ALSO
+.IR calendar (1),
+.IR schedule (1)
