@@ -153,7 +153,7 @@ adddue(struct Task *task, char *s)
 	ep = strptime(s, "%Y-%m-%d", &tm);
 	if (ep == NULL || *ep != '\0') {
 		errno = EINVAL;
-		warn("%s", s);
+		warnx("invalid date: \"%s\"", s);
 		return;
 	}
 	tm.tm_hour = MIDDAY;
@@ -205,8 +205,10 @@ addtask(struct Agenda *agenda, char *s)
 			break;
 		}
 	}
-	if (name == NULL)
+	if (name == NULL) {
+		warnx("not a task: \"%s\"", s);
 		return;
+	}
 	task = lookupcreate(agenda, name);
 
 	/* get priority */
@@ -281,6 +283,8 @@ readtasks(FILE *fp, struct Agenda *agenda, char *filename, int *exitval)
 	char buf[BUFSIZ];
 
 	while (fgets(buf, sizeof(buf), fp) != NULL) {
+		if (*buf == '#')
+			continue;
 		size = 0;
 		while ((spn = strcspn(buf + size, "\n")) > 1 && buf[size + spn - 1] == '\\') {
 			buf[size + spn - 1] = ' ';
