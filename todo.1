@@ -56,9 +56,8 @@ The letter must be A, B or C.
 The lower the letter, the higher the priority;
 so \(lqA\(rq is the higher priority.
 .PP
-After the task name comes the obligatory task description.
-The task description spans from the space after the colon that ends the task name
-to the beginning of the first property.
+Then, comes the obligatory task description.
+The task description spans to the beginning of the first property.
 .PP
 After the task description comes the properties.
 Properties are a space-delimited list of name-value pairs separated by colon.
@@ -90,6 +89,7 @@ TODO algor:   (A) Implement algorithm for sorting tasks. deps:parser
 TODO todo:    (B) Write the todo(1) utility.             deps:parser,algor
 TODO review:  (C) Release todo(1) in codereview.         deps:todo,manual
 .EE
+.PP
 If today were 01 September 2021,
 then running calendar with the option -l on this input would print the following:
 .IP

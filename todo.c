@@ -277,9 +277,15 @@ addtask(struct Agenda *agenda, char *s)
 static void
 readtasks(FILE *fp, struct Agenda *agenda, char *filename, int *exitval)
 {
+	size_t spn, size;
 	char buf[BUFSIZ];
 
 	while (fgets(buf, sizeof(buf), fp) != NULL) {
+		size = 0;
+		while ((spn = strcspn(buf, "\n")) > 1 && buf[size + spn - 1] == '\\') {
+			size = spn - 1;
+			fgets(buf + size, sizeof(buf) - size, fp);
+		}
 		addtask(agenda, buf);
 	}
 	if (ferror(fp)) {
@@ -331,7 +337,7 @@ comparetask(const void *a, const void *b)
 	return 0;
 }
 
-/* perform topological sort on agenda */
+/* sort tasks in agenda */
 static void
 sorttasks(struct Agenda *agenda)
 {
