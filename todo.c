@@ -283,7 +283,8 @@ readtasks(FILE *fp, struct Agenda *agenda, char *filename, int *exitval)
 	while (fgets(buf, sizeof(buf), fp) != NULL) {
 		size = 0;
 		while ((spn = strcspn(buf + size, "\n")) > 1 && buf[size + spn - 1] == '\\') {
-			size = spn - 1;
+			buf[size + spn - 1] = ' ';
+			size += spn;
 			fgets(buf + size, sizeof(buf) - size, fp);
 		}
 		addtask(agenda, buf);
