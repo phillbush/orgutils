@@ -43,7 +43,7 @@ struct Edge {
 struct Agenda {
 	struct Task **htab;             /* hash table of tasks */
 	struct Task **array;            /* array of sorted, unblocked tasks */
-	struct Task *list;              /* head of list of tasks */
+	struct Task *list;              /* head of list of unsorted tasks */
 	size_t nunblock;                /* number of unblocked tasks */
 	size_t ntasks;                  /* number of tasks */
 };
@@ -52,14 +52,15 @@ struct Agenda {
 static time_t today;
 
 /* option flags */
-static int dflag;                       /* whether to consider tasks with passed deadline as done */
-static int lflag;                       /* whether to display tasks in long format */
+static int dflag = 0;                   /* whether to consider tasks with passed deadline as done */
+static int lflag = 0;                   /* whether to display tasks in long format */
+static int nflag = 0;                   /* whether to display tasks with internal name */
 
 /* show usage and exit */
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: todo [-ld] [-t yyyymmdd] [file...]\n");
+	(void)fprintf(stderr, "usage: todo [-dln] [-t yyyymmdd] [file...]\n");
 	exit(1);
 }
 
@@ -383,22 +384,27 @@ printtasks(struct Agenda *agenda)
 
 	for (i = 0; i < agenda->nunblock; i++) {
 		task = agenda->array[i];
-		if (lflag) {
+		if (nflag) {
 			if ((n = printf("%s", task->name)) < 0)
 				break;
 			n = (n > 0 && n < NCOLS) ? NCOLS - n : 0;
-			if (printf(":%*c (%c) %s", n, ' ',
-			             (task->pri < 0 ? 'C' : (task->pri > 0 ? 'A' : 'B')),
-			             task->desc) < 0)
+			if (printf(":%*c", n, ' ') < 0) {
 				break;
+			}
+		}
+		if (lflag) {
+			if (printf("(%c) %s", (task->pri < 0 ? 'C' : (task->pri > 0 ? 'A' : 'B')), task->desc) < 0) {
+				break;
+			}
 			if (task->date != NULL) {
 				if (printf(" due:%s", task->date) < 0) {
 					break;
 				}
 			}
 		} else {
-			if (printf("%s", task->desc) < 0)
+			if (printf("%s", task->desc) < 0) {
 				break;
+			}
 		}
 		if (printf("\n") < 0) {
 			break;
@@ -442,13 +448,16 @@ main(int argc, char *argv[])
 	int exitval, ch;
 
 	today = gettoday();
-	while ((ch = getopt(argc, argv, "dlt:")) != -1) {
+	while ((ch = getopt(argc, argv, "dlnt:")) != -1) {
 		switch (ch) {
 		case 'd':
 			dflag = 1;
 			break;
 		case 'l':
 			lflag = 1;
+			break;
+		case 'n':
+			nflag = 1;
 			break;
 		case 't':
 			today = strtotime(optarg);
@@ -480,7 +489,7 @@ main(int argc, char *argv[])
 			fclose(fp);
 		}
 	}
-	free(agenda->htab);
+	free(agenda->htab);     /* we don't need the hash table anymore */
 	sorttasks(agenda);
 	printtasks(agenda);
 	freeagenda(agenda);

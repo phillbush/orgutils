@@ -1,7 +1,7 @@
 PREFIX = /usr/local
 MANPREFIX = ${PREFIX}/share/man
 
-PROGS = calendar todo
+PROGS = calendar todo agenda
 MANS = ${PROGS:=.1}
 OBJS = ${PROGS:=.o} util.o
 

@@ -1,0 +1,97 @@
+#!/bin/sh
+
+# show usage and exit
+usage() {
+	echo "usage: agenda [-cet] [-w WEEKS]" >&2
+	exit 1
+}
+
+# concatenate events
+catcalendars() {
+	IFS=":"
+	for file in $CALENDAR
+	do
+		[ -f "$file" ] && \
+		awk '
+			NR == 1 { f = FILENAME; n = split(f, a, "/"); f = a[n - 1] }
+			{ sub(/[ \t]+/, "&" f ": "); print }
+		' "$file"
+	done
+}
+
+# concatenate tasks
+cattodos() {
+	IFS=":"
+	for file in $TODO
+	do
+		[ -f "$file" ] && \
+		awk '
+			NR == 1 { f = FILENAME; n = split(f, a, "/"); f = a[n - 1] }
+			{ sub(/:[ \t]+/, "&" f ": "); print }
+		' "$file"
+	done
+}
+
+# parse command-line options
+week=0
+while getopts 'cetw:' c
+do
+	case "$c" in
+	c)
+		calendar=1
+		;;
+	e)
+		events=1
+		;;
+	t)
+		tasks=1
+		;;
+	w)
+		week="$OPTARG"
+		;;
+	*)
+		usage
+		;;
+	esac
+done
+shift $(( OPTIND - 1 ))
+if [ "$calendar" -eq 0 ] && [ "$events" -eq 0 ] && [ "$tasks" -eq 0 ]
+then
+	calendar=1
+	events=1
+	tasks=1
+fi
+
+# compute time
+time="$(( $(date +%s) + week * 7 * 24 * 60 * 60 ))"
+mday="$(perl -le 'my $n = (localtime($ARGV[0]))[3]; print $n' "$time")"
+month="$(perl -le 'my $n = (localtime($ARGV[0]))[4] + 1; print $n' "$time")"
+year="$(perl -le 'my $n = (localtime($ARGV[0]))[5] + 1900; print $n' "$time")"
+wday="$(perl -le 'my $n = (localtime($ARGV[0]))[6]; print $n' "$time")"
+[ "$wday" -eq 0 ] && wday=7
+
+# display calendar
+if [ "$calendar" -ne 0 ]
+then
+	cal -m "$month" "$year" | sed '/^ *$/d'
+	echo ""
+fi
+
+# display events
+if [ "$events" -ne 0 ]
+then
+	echo "Events:"
+	catcalendars |\
+	calendar -l -B"$(( wday - 1 ))" -A"$(( 7 - wday ))" -t"$year$month$mday" 2>/dev/null
+	echo ""
+fi
+
+# display tasks
+if [ "$tasks" -ne 0 ]
+then
+	echo "Tasks:"
+	cattodos |\
+	todo -l 2>/dev/null
+fi
+
+exit 0

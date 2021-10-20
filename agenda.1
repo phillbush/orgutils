@@ -1,0 +1,79 @@
+.TH AGENDA 1
+.SH NAME
+agenda \- display calendar, events and tasks
+.SH SYNOPSIS
+.B agenda
+.RB [ \-cet ]
+.RB [ \-w
+.IR NUM ]
+.SH DESCRIPTION
+.B agenda
+is a script that calls the programs
+.IR cal (1),
+.IR calendar (1),
+and
+.IR todo (1).
+The files with events read by
+.IR calendar (1)
+are specified by the
+.B CALENDAR
+environment variable.
+The files with tasks read by
+.IR todo (1)
+are specified by the
+.B TODO
+environment variable.
+.PP
+The options are as follows.
+.TP
+.B \-c
+Display the calendar for the current month.
+.TP
+.B \-e
+Display the events for the current week.
+.TP
+.B \-t
+Display the next tasks.
+.TP
+.BI \-w " NUM"
+When used with
+.BR \-e ,
+consider current week as
+.B NUM
+weeks from now.
+For example,
+.B \-w +1
+means to consider next week as the current week.
+.B \-w -2
+means to consider two weeks ago as the current week.
+.PP
+When
+.BR \-c ,
+.BR \-e ,
+and
+.B \-t
+are not specified,
+the default action is equivalent to them having been specified.
+.SH ENVIRONMENT
+The following environment variables affect the execution of
+.BR agenda .
+.TP
+.B CALENDAR
+Colon-separated list of files containing events, one per line.
+Those files will be concatenated and given as input for
+.IR calendar (1).
+The list of files is subject to globbing;
+that means that a question mark (?) will match any single character,
+an asterisk (*) will match multiple characters, etc.
+.TP
+.B TODO
+Colon-separated list of files containing tasks, one per line.
+Those files will be concatenated and given as input for
+.IR todo (1).
+The list of files is subject to globbing;
+that means that a question mark (?) will match any single character,
+an asterisk (*) will match multiple characters, etc.
+.SH SEE ALSO
+.IR cal (1),
+.IR calendar (1),
+.IR todo (1)
