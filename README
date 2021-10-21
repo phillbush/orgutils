@@ -4,15 +4,20 @@
 orgutils are a set of utilities for personal and project organization.
 Each program has its respective manual page.
 
-The programs are the following.
+The programs included in orgutils are the following.
 • calendar:     Print upcoming events.
 • todo:         Print next tasks.
-• schedule:     Convert tasks into events.
 • agenda:       Print calendar, events and tasks for current project.
 
+The following programs are planned to be included in orgutils:
+• schedule:     Convert tasks into events.
+• habit:        Habits tracker.
+• clock:        Clock time spent in activities.
+
 These programs were written to be scriptable.  They are non-interactive
-filters that do not do colored output or other forms of pretty-printing,
+filters[1] that do not do colored output or other forms of pretty-printing,
 so their output can be used by other utilities, in a shell pipeline for
 example.
+[1]: http://www.catb.org/~esr/writings/taoup/html/ch11s06.html#id2957637
 
 This software is in public domain and is provided AS IS, with NO WARRANTY.

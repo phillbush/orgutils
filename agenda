@@ -11,9 +11,16 @@ usage() {
 # replace $HOME with ~
 striphome() {
 	awk '
-		BEGIN { HOME = ENVIRON["HOME"] }
+		BEGIN {
+			HOME = ENVIRON["HOME"]
+			PROJ = ENVIRON["PROJDIR"]
+		}
 		{
-			if (match($0, HOME "[^:]+")) {
+			if (PROJ && match($0, HOME "/[^:]+")) {
+				s = substr($0, RSTART + length(PROJ) + 1, RLENGTH)
+				sub(/\/[^\/]*$/, "", s)
+				print substr($0, 1, RSTART - 1) s substr($0, RSTART + RLENGTH)
+			} else if (HOME && match($0, HOME "[^:]+")) {
 				s = substr($0, RSTART + length(HOME), RLENGTH)
 				sub(/\/[^\/]*$/, "", s)
 				print substr($0, 1, RSTART - 1) "~" s substr($0, RSTART + RLENGTH)
@@ -26,11 +33,14 @@ striphome() {
 
 # parse command-line options
 week=0
-while getopts 'cetw:' c
+while getopts 'cdetw:' c
 do
 	case "$c" in
 	c)
 		calendar=1
+		;;
+	d)
+		todoopts="-d"
 		;;
 	e)
 		events=1
@@ -81,7 +91,7 @@ fi
 if [ "$tasks" -ne 0 ]
 then
 	echo "Tasks:"
-	todo -l $TODO 2>/dev/null | striphome
+	todo $todoopts -l $TODO 2>/dev/null | striphome
 fi
 
 exit 0

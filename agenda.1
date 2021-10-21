@@ -3,7 +3,7 @@
 agenda \- display calendar, events and tasks
 .SH SYNOPSIS
 .B agenda
-.RB [ \-cet ]
+.RB [ \-cdet ]
 .RB [ \-w
 .IR NUM ]
 .SH DESCRIPTION
@@ -28,6 +28,12 @@ The options are as follows.
 .TP
 .B \-c
 Display the calendar for the current month.
+.TP
+.B \-d
+Pass the -d option to
+.IR todo (1).
+That is, consider thasks whose deadline has already passed as done,
+even if they are not explicitly set as done.
 .TP
 .B \-e
 Display the events for the current week.
