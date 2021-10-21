@@ -72,6 +72,28 @@ The list of files is subject to globbing;
 that means that a question mark (?) will match any single character,
 an asterisk (*) will match multiple characters, etc.
 .TP
+.B HOME
+If the environment variable
+.B PROJDIR
+is not set and if the value of the environment variable
+.B HOME
+occurs in the output of
+.IR calendar (1)
+or
+.IR todo (1),
+the occurrences are interpreted as paths to calendar or todo files.
+The value of this environment variable is stripped from the occurrences and replaced by a tilde (~);
+the basenames of each path are also stripped.
+.TP
+.B PROJDIR
+If the value of this environment variable occurs in the output of
+.IR calendar (1)
+or
+.IR todo (1),
+the occurrences are interpreted as paths to calendar or todo files.
+The value of this environment variable is stripped from the occurrences;
+the basenames of each path are also stripped.
+.TP
 .B TODO
 Colon-separated list of files containing tasks, one per line.
 Those files will be concatenated and given as input for
