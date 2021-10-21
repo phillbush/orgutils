@@ -11,6 +11,7 @@
 #include "util.h"
 
 #define DEFDAYS       8                 /* default days til deadline for tasks without deadline */
+#define DEFNICE       3                 /* log2(DEFDAYS) */
 #define NHASH         128               /* size of hash table */
 #define MULTIPLIER    31                /* multiplier for hash table */
 #define NCOLS         10                /* number of collumns reserved for task name in long format */
@@ -22,11 +23,14 @@
 /* task structure */
 struct Task {
 	struct Task *hnext;             /* pointer for hash table linked list */
-	struct Task *next;              /* pointer for linked list */
+	struct Task *unext;             /* pointer for unsorted linked list */
+	struct Task *sprev, *snext;     /* pointer for sorted linked list */
 	struct Edge *deps;              /* linked list of dependency edges */
 	time_t due;                     /* due date, at 12:00 */
 	int init;                       /* whether task was initialized */
 	int pri;                        /* priority */
+	int visited;                    /* whether node was visited while sorting */
+	int nice;                       /* task niceness; the lower the more urgent */
 	int done;                       /* whether task is marked as done */
 	char *date;                     /* due date, in format YYYY-MM-DD*/
 	char *name;                     /* task name */
@@ -43,7 +47,8 @@ struct Edge {
 struct Agenda {
 	struct Task **htab;             /* hash table of tasks */
 	struct Task **array;            /* array of sorted, unblocked tasks */
-	struct Task *list;              /* head of list of unsorted tasks */
+	struct Task *unsort;            /* head of list of unsorted tasks */
+	struct Task *shead, *stail;     /* head and tail of sorted list of tasks */
 	size_t nunblock;                /* number of unblocked tasks */
 	size_t ntasks;                  /* number of tasks */
 };
@@ -86,6 +91,21 @@ gettoday(void)
 	return t;
 }
 
+/* create agenda */
+static struct Agenda *
+newagenda(void)
+{
+	struct Agenda *agenda;
+
+	agenda = ecalloc(1, sizeof(*agenda));
+	agenda->htab = ecalloc(NHASH, sizeof(*(agenda->htab)));
+	agenda->array = NULL;
+	agenda->unsort = NULL;
+	agenda->shead = NULL;
+	agenda->stail = NULL;
+	return agenda;
+}
+
 /* compute hash value of string */
 static size_t
 hash(const char *s)
@@ -104,20 +124,20 @@ static struct Task *
 lookupcreate(struct Agenda *agenda, const char *name)
 {
 	size_t h;
-	struct Task *p;
+	struct Task *task;
 
 	h = hash(name);
-	for (p = agenda->htab[h]; p != NULL; p = p->hnext)
-		if (strcmp(name, p->name) == 0)
-			return p;
-	p = emalloc(sizeof(*p));
-	p->name = estrdup(name);
-	p->hnext = agenda->htab[h];
-	p->next = agenda->list;
-	agenda->htab[h] = p;
-	agenda->list = p;
+	for (task = agenda->htab[h]; task != NULL; task = task->hnext)
+		if (strcmp(name, task->name) == 0)
+			return task;
+	task = emalloc(sizeof(*task));
+	task->name = estrdup(name);
+	task->hnext = agenda->htab[h];
+	task->unext = agenda->unsort;
+	agenda->htab[h] = task;
+	agenda->unsort = task;
 	agenda->ntasks++;
-	return p;
+	return task;
 }
 
 /* add dependencies to task; we change s */
@@ -273,6 +293,8 @@ addtask(struct Agenda *agenda, char *s)
 	task->desc = estrdup(s);
 	task->init = 1;
 	task->pri = pri;
+	task->visited = 0;
+	task->nice = DEFNICE;
 	task->done = done;
 }
 
@@ -301,44 +323,67 @@ readtasks(FILE *fp, struct Agenda *agenda, char *filename, int *exitval)
 	}
 }
 
+/* visit task and their dependencies */
+static void
+visittask(struct Agenda *agenda, struct Task *task)
+{
+	struct Edge *edge;
+
+	if (task->visited > 1)
+		return;
+	if (task->visited == 1)
+		errx(1, "cyclic dependency between tasks");
+	task->visited = 1;
+	for (edge = task->deps; edge != NULL; edge = edge->next)
+		visittask(agenda, edge->to);
+	task->visited = 2;
+	if (agenda->shead == NULL)
+		agenda->shead = task;
+	if (agenda->stail != NULL)
+		agenda->stail->snext = task;
+	task->sprev = agenda->stail;
+	agenda->stail = task;
+}
+
+/* compute task niceness */
+static void
+calcnice(struct Task *task)
+{
+	struct Edge *edge;
+	int nice;
+	int ndays;
+
+	ndays = (task->due != 0) ? difftime(task->due, today) / SECS_PER_DAY - 1 : DEFDAYS;
+	nice = 0;
+	if (ndays < 0) {
+		ndays = -ndays;
+		while (ndays >>= 1) {
+			--nice;
+		}
+	} else {
+		while (ndays >>= 1) {
+			++nice;
+		}
+	}
+	nice -= task->pri;
+	if (nice < task->nice)
+		task->nice = nice;
+	for (edge = task->deps; edge != NULL; edge = edge->next) {
+		edge->to->nice = task->nice;
+	}
+}
+
 /* compare tasks */
 static int
 comparetask(const void *a, const void *b)
 {
 	struct Task *taska, *taskb;
-	time_t timea, timeb;
-	time_t tmpa, tmpb;
 
 	taska = *(struct Task **)a;
 	taskb = *(struct Task **)b;
-	tmpa = (taska->due != 0) ? difftime(taska->due, today) / SECS_PER_DAY - 1 : DEFDAYS;
-	tmpb = (taskb->due != 0) ? difftime(taskb->due, today) / SECS_PER_DAY - 1 : DEFDAYS;
-	timea = timeb = 0;
-	if (tmpa < 0) {
-		tmpa = -tmpa;
-		while (tmpa >>= 1) {
-			--timea;
-		}
-	} else {
-		while (tmpa >>= 1) {
-			++timea;
-		}
-	}
-	if (tmpb < 0) {
-		tmpb = -tmpb;
-		while (tmpb >>= 1) {
-			--timeb;
-		}
-	} else {
-		while (tmpb >>= 1) {
-			++timeb;
-		}
-	}
-	timea -= taska->pri;
-	timeb -= taskb->pri;
-	if (timea < timeb)
+	if (taska->nice < taskb->nice)
 		return -1;
-	if (timea > timeb)
+	if (taska->nice > taskb->nice)
 		return +1;
 	return 0;
 }
@@ -351,8 +396,18 @@ sorttasks(struct Agenda *agenda)
 	struct Edge *edge;
 	int cont;
 
+	/* first pass: topological sort */
+	for (task = agenda->unsort; task != NULL; task = task->unext)
+		if (!task->visited)
+			visittask(agenda, task);
+
+	/* second pass: compute nicenesses */
+	for (task = agenda->stail; task != NULL; task = task->sprev)
+		calcnice(task);
+
+	/* third pass: create array of unblocked tasks */
 	agenda->array = ecalloc(agenda->ntasks, sizeof(*agenda->array));
-	for (task = agenda->list; task != NULL; task = task->next) {
+	for (task = agenda->shead; task != NULL; task = task->snext) {
 		if (!task->init)
 			errx(1, "task \"%s\" mentioned but not defined", task->name);
 		if (task->done)
@@ -371,6 +426,8 @@ sorttasks(struct Agenda *agenda)
 		}
 		agenda->array[agenda->nunblock++] = task;
 	}
+
+	/* fourth pass: sort array of unblocked tasks */
 	qsort(agenda->array, agenda->nunblock, sizeof(*agenda->array), comparetask);
 }
 
@@ -422,14 +479,14 @@ freeagenda(struct Agenda *agenda)
 	struct Task *task, *ttmp;
 	struct Edge *edge, *etmp;
 
-	for (task = agenda->list; task != NULL; ) {
+	for (task = agenda->unsort; task != NULL; ) {
 		for (edge = task->deps; edge != NULL; ) {
 			etmp = edge;
 			edge = edge->next;
 			free(etmp);
 		}
 		ttmp = task;
-		task = task->next;
+		task = task->unext;
 		free(ttmp->name);
 		free(ttmp->desc);
 		free(ttmp->date);
@@ -470,8 +527,7 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 	exitval = 0;
-	agenda = ecalloc(1, sizeof(*agenda));
-	agenda->htab = ecalloc(NHASH, sizeof(*(agenda->htab)));
+	agenda = newagenda();
 	if (argc == 0) {
 		readtasks(stdin, agenda, "stdin", &exitval);
 	} else {
