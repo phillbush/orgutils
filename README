@@ -7,7 +7,7 @@ Each program has its respective manual page.
 The programs included in orgutils are the following.
 • calendar:     Print upcoming events.
 • todo:         Print next tasks.
-• agenda:       Print calendar, events and tasks for current project.
+• agenda:       Print calendar, events and tasks.
 
 The following programs are planned to be included in orgutils:
 • schedule:     Convert tasks into events.
