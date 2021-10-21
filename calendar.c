@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include "util.h"
 
+#define HOME          "HOME"
 #define DAYS_PER_WEEK 7
 #define MAX_DAYS      35
 #define YEAR_ZERO     1900
@@ -60,11 +61,13 @@ static const int days_in_month[2][13] = {
 	{0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31},
 };
 
+static char *home = NULL;
+
 /* show usage and exit */
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: calendar [-ly] [-A num] [-B num] [-t yyyymmdd] [-N num] [file ...]\n");
+	(void)fprintf(stderr, "usage: calendar [-lPpy] [-A num] [-B num] [-t yyyymmdd] [-N num] [file ...]\n");
 	exit(1);
 }
 
@@ -187,7 +190,7 @@ getpatterns(char *s, char **name)
 
 /* get events for file fp */
 static void
-getevents(FILE *fp, struct Event **head, struct Event **tail)
+getevents(FILE *fp, char *prefix, struct Event **head, struct Event **tail)
 {
 	struct Event *ev;
 	struct Day *patt;
@@ -199,7 +202,7 @@ getevents(FILE *fp, struct Event **head, struct Event **tail)
 			ev = ecalloc(1, sizeof(*ev));
 			ev->next = NULL;
 			ev->days = patt;
-			ev->name = estrdup(name);
+			ev->name = getfullname(prefix, name);
 			if (*head == NULL)
 				*head = ev;
 			if (*tail != NULL)
@@ -315,6 +318,7 @@ main(int argc, char *argv[])
 
 	ndays = before = lflag = yflag = 0;
 	settoday(&today, &after);
+	home = getenv(HOME);
 	while ((ch = getopt(argc, argv, "A:B:lN:t:y")) != -1) {
 		switch (ch) {
 		case 'A':
@@ -348,11 +352,11 @@ main(int argc, char *argv[])
 	head = tail = NULL;
 	exitval = 0;
 	if (argc == 0) {
-		getevents(stdin, &head, &tail);
+		getevents(stdin, NULL, &head, &tail);
 	} else {
 		for (; *argv != NULL; argv++) {
 			if (strcmp(*argv, "-") == 0) {
-				getevents(stdin, &head, &tail);
+				getevents(stdin, (argc > 1 ? "-" : NULL), &head, &tail);
 				continue;
 			}
 			if ((fp = fopen(*argv, "r")) == NULL) {
@@ -360,7 +364,7 @@ main(int argc, char *argv[])
 				exitval = 1;
 				continue;
 			}
-			getevents(fp, &head, &tail);
+			getevents(fp, (argc > 1 ? *argv : NULL), &head, &tail);
 			fclose(fp);
 		}
 	}

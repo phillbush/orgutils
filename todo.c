@@ -59,13 +59,12 @@ static time_t today;
 /* option flags */
 static int dflag = 0;                   /* whether to consider tasks with passed deadline as done */
 static int lflag = 0;                   /* whether to display tasks in long format */
-static int nflag = 0;                   /* whether to display tasks with internal name */
 
 /* show usage and exit */
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: todo [-dln] [-t yyyymmdd] [file...]\n");
+	(void)fprintf(stderr, "usage: todo [-dl] [-t yyyymmdd] [file...]\n");
 	exit(1);
 }
 
@@ -121,17 +120,22 @@ hash(const char *s)
 
 /* find name in agenda, creating if does not exist */
 static struct Task *
-lookupcreate(struct Agenda *agenda, const char *name)
+lookupcreate(struct Agenda *agenda, const char *prefix, const char *name)
 {
-	size_t h;
 	struct Task *task;
+	size_t h;
+	char *fullname;
 
+	fullname = getfullname(prefix, name);
 	h = hash(name);
-	for (task = agenda->htab[h]; task != NULL; task = task->hnext)
-		if (strcmp(name, task->name) == 0)
+	for (task = agenda->htab[h]; task != NULL; task = task->hnext) {
+		if (strcmp(fullname, task->name) == 0) {
+			free(fullname);
 			return task;
+		}
+	}
 	task = emalloc(sizeof(*task));
-	task->name = estrdup(name);
+	task->name = fullname;
 	task->hnext = agenda->htab[h];
 	task->unext = agenda->unsort;
 	agenda->htab[h] = task;
@@ -142,14 +146,14 @@ lookupcreate(struct Agenda *agenda, const char *name)
 
 /* add dependencies to task; we change s */
 static void
-adddeps(struct Agenda *agenda, struct Task *task, char *s)
+adddeps(struct Agenda *agenda, struct Task *task, char *prefix, char *s)
 {
 	struct Task *tmp;
 	struct Edge *edge;
 	char *t;
 
 	for (t = strtok(s, ","); t != NULL; t = strtok(NULL, ",")) {
-		tmp = lookupcreate(agenda, t);
+		tmp = lookupcreate(agenda, prefix, t);
 		edge = emalloc(sizeof(*edge));
 		edge->next = task->deps;
 		edge->to = tmp;
@@ -194,7 +198,7 @@ adddue(struct Task *task, char *s)
 
 /* parse s for a new task and add it into agenda; we change s */
 static void
-addtask(struct Agenda *agenda, char *s)
+addtask(struct Agenda *agenda, char *prefix, char *s)
 {
 	struct Task *task;
 	size_t len;
@@ -230,7 +234,7 @@ addtask(struct Agenda *agenda, char *s)
 		warnx("not a task: \"%s\"", s);
 		return;
 	}
-	task = lookupcreate(agenda, name);
+	task = lookupcreate(agenda, prefix, name);
 
 	/* get priority */
 	while (isspace(*(unsigned char *)s))
@@ -275,7 +279,7 @@ addtask(struct Agenda *agenda, char *s)
 			if (strcmp(prop, PROP_DUE) == 0) {
 				adddue(task, val);
 			} else if (strcmp(prop, PROP_DEPS) == 0) {
-				adddeps(agenda, task, val);
+				adddeps(agenda, task, prefix, val);
 			} else {
 				warnx("unknown property \"%s\"", prop);
 			}
@@ -290,7 +294,7 @@ addtask(struct Agenda *agenda, char *s)
 		*t = '\0';
 
 	free(task->desc);               /* in case we are overriding an existing task */
-	task->desc = estrdup(s);
+	task->desc = getfullname(prefix, s);
 	task->init = 1;
 	task->pri = pri;
 	task->visited = 0;
@@ -300,7 +304,7 @@ addtask(struct Agenda *agenda, char *s)
 
 /* read tasks from fp into agenda */
 static void
-readtasks(FILE *fp, struct Agenda *agenda, char *filename, int *exitval)
+readtasks(FILE *fp, struct Agenda *agenda, char *prefix, int *exitval)
 {
 	size_t spn, size;
 	char buf[BUFSIZ];
@@ -314,10 +318,10 @@ readtasks(FILE *fp, struct Agenda *agenda, char *filename, int *exitval)
 			size += spn;
 			fgets(buf + size, sizeof(buf) - size, fp);
 		}
-		addtask(agenda, buf);
+		addtask(agenda, prefix, buf);
 	}
 	if (ferror(fp)) {
-		warn("%s", filename);
+		warn(NULL);
 		*exitval = 1;
 		clearerr(fp);
 	}
@@ -437,18 +441,9 @@ printtasks(struct Agenda *agenda)
 {
 	struct Task *task;
 	size_t i;
-	int n;
 
 	for (i = 0; i < agenda->nunblock; i++) {
 		task = agenda->array[i];
-		if (nflag) {
-			if ((n = printf("%s", task->name)) < 0)
-				break;
-			n = (n > 0 && n < NCOLS) ? NCOLS - n : 0;
-			if (printf(":%*c", n, ' ') < 0) {
-				break;
-			}
-		}
 		if (lflag) {
 			if (printf("(%c) %s", (task->pri < 0 ? 'C' : (task->pri > 0 ? 'A' : 'B')), task->desc) < 0) {
 				break;
@@ -513,9 +508,6 @@ main(int argc, char *argv[])
 		case 'l':
 			lflag = 1;
 			break;
-		case 'n':
-			nflag = 1;
-			break;
 		case 't':
 			today = strtotime(optarg);
 			break;
@@ -529,11 +521,11 @@ main(int argc, char *argv[])
 	exitval = 0;
 	agenda = newagenda();
 	if (argc == 0) {
-		readtasks(stdin, agenda, "stdin", &exitval);
+		readtasks(stdin, agenda, NULL, &exitval);
 	} else {
 		for (; *argv != NULL; argv++) {
 			if (strcmp(*argv, "-") == 0) {
-				readtasks(stdin, agenda, "stdin", &exitval);
+				readtasks(stdin, agenda, (argc > 1 ? "-" : NULL), &exitval);
 				continue;
 			}
 			if ((fp = fopen(*argv, "r")) == NULL) {
@@ -541,7 +533,7 @@ main(int argc, char *argv[])
 				exitval = 1;
 				continue;
 			}
-			readtasks(fp, agenda, *argv, &exitval);
+			readtasks(fp, agenda, (argc > 1 ? *argv : NULL), &exitval);
 			fclose(fp);
 		}
 	}

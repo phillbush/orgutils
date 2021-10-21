@@ -1,35 +1,27 @@
 #!/bin/sh
 
+IFS=":"
+
 # show usage and exit
 usage() {
 	echo "usage: agenda [-cet] [-w WEEKS]" >&2
 	exit 1
 }
 
-# concatenate events
-catcalendars() {
-	IFS=":"
-	for file in $CALENDAR
-	do
-		[ -f "$file" ] && \
-		awk '
-			NR == 1 { f = FILENAME; n = split(f, a, "/"); f = a[n - 1] }
-			{ sub(/[ \t]+/, "&" f ": "); print }
-		' "$file"
-	done
-}
-
-# concatenate tasks
-cattodos() {
-	IFS=":"
-	for file in $TODO
-	do
-		[ -f "$file" ] && \
-		awk '
-			NR == 1 { f = FILENAME; n = split(f, a, "/"); f = a[n - 1] }
-			{ sub(/:[ \t]+/, "&" f ": "); print }
-		' "$file"
-	done
+# replace $HOME with ~
+striphome() {
+	awk '
+		BEGIN { HOME = ENVIRON["HOME"] }
+		{
+			if (match($0, HOME "[^:]+")) {
+				s = substr($0, RSTART + length(HOME), RLENGTH)
+				sub(/\/[^\/]*$/, "", s)
+				print substr($0, 1, RSTART - 1) "~" s substr($0, RSTART + RLENGTH)
+			} else {
+				print
+			}
+		}
+	'
 }
 
 # parse command-line options
@@ -81,8 +73,7 @@ fi
 if [ "$events" -ne 0 ]
 then
 	echo "Events:"
-	catcalendars |\
-	calendar -l -B"$(( wday - 1 ))" -A"$(( 7 - wday ))" -t"$year$month$mday" 2>/dev/null
+	calendar -l -B"$(( wday - 1 ))" -A"$(( 7 - wday ))" -t"$year$month$mday" $CALENDAR 2>/dev/null | striphome
 	echo ""
 fi
 
@@ -90,8 +81,7 @@ fi
 if [ "$tasks" -ne 0 ]
 then
 	echo "Tasks:"
-	cattodos |\
-	todo -l 2>/dev/null
+	todo -l $TODO 2>/dev/null | striphome
 fi
 
 exit 0

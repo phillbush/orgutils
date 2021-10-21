@@ -1,5 +1,6 @@
 #include <err.h>
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -36,6 +37,23 @@ estrdup(const char *s)
 	if ((t = strdup(s)) == NULL)
 		err(1, "strdup");
 	return t;
+}
+
+/* add prefix to event name if necessary; return full name in allocated string */
+char *
+getfullname(const char *prefix, const char *name)
+{
+	size_t size;
+	char *fullname;
+
+	if (prefix != NULL) {
+		size = strlen(prefix) + strlen(name) + 3;       /* 3 = strlen(": ") + 1 for '\0' */
+		fullname = emalloc(size);
+		snprintf(fullname, size, "%s: %s", prefix, name);
+	} else {
+		fullname = estrdup(name);
+	}
+	return fullname;
 }
 
 /* convert string value to int between min and max; exit on error */
