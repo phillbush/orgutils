@@ -97,8 +97,10 @@ struct Task {
 	 * days from now until its deadline minus the priority.
 	 *
 	 * Tasks without a deadline are considered to be due in eight
-	 * days.  Tasks without a priority have priority of zero.  So,
-	 * by default, the niceness of a regular task is 3 (log2(8)-0).
+	 * days (the power of two that is more close to the duration of
+	 * a week in days).  Tasks without a priority have priority of
+	 * zero.  So, by default, the niceness of a regular task is 3
+	 * (log2(8)-0).
 	 */
 	int nice;                       /* task niceness; the lower the more urgent */
 
