@@ -20,37 +20,110 @@
 #define PROP_DEPS     "deps"
 #define PROP_DUE      "due"
 
+/* collection of tasks */
+struct Agenda {
+	/*
+	 * We collect tasks in five different data structures.
+	 * - (1) A hash table.
+	 * - (2) An unsorted singly linked list.
+	 * - (3) A directed acyclic graph.
+	 * - (4) A topologically sorted doubly linked list.
+	 * - (5) A sorted array.
+	 *
+	 * .The reading phase.
+	 * First, we collect tasks in a hash table (1st data structure)
+	 * and an unsorted singly linked list (2nd).  While we are
+	 * collecting tasks, we get their dependencies and build a
+	 * directed acyclic graph of tasks (3rd).  After reading all
+	 * tasks, we free the hash table (it is only used to get the
+	 * dependencies without having to loop over the unsorted list
+	 * all the time).
+	 *
+	 * .The sorting phase.
+	 * After collecting tasks, we iterate over the unsorted list of
+	 * tasks and visit each node in the directed graph and create a
+	 * topologically sorted doubly linked list of tasks (4th), that
+	 * will be read in the reverse topological order to compute the
+	 * niceness (anti-urgency) of each task.  Then, we iterate over
+	 * the sorted list to extract those tasks that are not blocked
+	 * by a open (not done) task into an array of tasks (5th) that
+	 * will be sorted based on the niceness of the tasks.  This
+	 * array contain only those tasks that are unblocked.
+	 *
+	 * .The writing phase.
+	 * Finally, we loop through the array of tasks to print each
+	 * task to the standard output.
+	 */
+
+	struct Task **htab;             /* hash table of tasks */
+	struct Task **array;            /* array of pointers to sorted, unblocked tasks */
+	struct Task *unsort;            /* head of unsorted list of tasks */
+	struct Task *shead, *stail;     /* head and tail of sorted list of tasks */
+	size_t nunblock;                /* number of unblocked tasks */
+	size_t ntasks;                  /* number of tasks */
+};
+
 /* task structure */
 struct Task {
+	/*
+	 * A task maintains some pointers for the data structures where
+	 * tasks are organized.  See the comment at struct Agenda for
+	 * more information.
+	 */
 	struct Task *hnext;             /* pointer for hash table linked list */
 	struct Task *unext;             /* pointer for unsorted linked list */
 	struct Task *sprev, *snext;     /* pointer for sorted linked list */
 	struct Edge *deps;              /* linked list of dependency edges */
-	time_t due;                     /* due date, at 12:00 */
+
+	/*
+	 * Tasks are first read from the files (or stdin) and collected.
+	 * We use a hash table to lookup tasks or create them.  When a
+	 * task is read, it is created and initialized (its init field
+	 * is set as 1).  When a task is only mentioned as a dependency
+	 * of another task, its init field is zered.
+	 */
 	int init;                       /* whether task was initialized */
-	int pri;                        /* priority */
-	int visited;                    /* whether node was visited while sorting */
+
+	/*
+	 * The niceness of a task is its anti-urgency.  The nicer a task
+	 * is, the less urgent it is.   The nice field is computed after
+	 * generating a topologically sorted doubly linked list of
+	 * tasks.  We need this topological order because the niceness
+	 * of a task depends on the niceness of the tasks that depends
+	 * on it.
+	 *
+	 * The niceness of a task is the smaller value between the
+	 * niceness of the tasks that depend on it, and the log2 of the
+	 * days from now until its deadline minus the priority.
+	 *
+	 * Tasks without a deadline are considered to be due in eight
+	 * days.  Tasks without a priority have priority of zero.  So,
+	 * by default, the niceness of a regular task is 3 (log2(8)-0).
+	 */
 	int nice;                       /* task niceness; the lower the more urgent */
+
+	/*
+	 * For topologically sorting the tasks, we need to know whether
+	 * a task was visited.
+	 */
+	int visited;                    /* whether node was visited while sorting */
+
+	/*
+	 * The following values are read from the given files or the
+	 * standard input.
+	 */
+	time_t due;                     /* due date, at 12:00 */
+	int pri;                        /* priority */
 	int done;                       /* whether task is marked as done */
 	char *date;                     /* due date, in format YYYY-MM-DD*/
 	char *name;                     /* task name */
 	char *desc;                     /* task description */
 };
 
-/* dependency link */
+/* dependency link for the directed graph */
 struct Edge {
 	struct Edge *next;              /* next edge on linked list */
 	struct Task *to;                /* task the edge links to */
-};
-
-/* list and table of tasks */
-struct Agenda {
-	struct Task **htab;             /* hash table of tasks */
-	struct Task **array;            /* array of sorted, unblocked tasks */
-	struct Task *unsort;            /* head of list of unsorted tasks */
-	struct Task *shead, *stail;     /* head and tail of sorted list of tasks */
-	size_t nunblock;                /* number of unblocked tasks */
-	size_t ntasks;                  /* number of tasks */
 };
 
 /* time for today, 12:00 */
@@ -373,11 +446,13 @@ calcnice(struct Task *task)
 	if (nice < task->nice)
 		task->nice = nice;
 	for (edge = task->deps; edge != NULL; edge = edge->next) {
-		edge->to->nice = task->nice;
+		if (task->nice < edge->to->nice) {
+			edge->to->nice = task->nice;
+		}
 	}
 }
 
-/* compare tasks */
+/* compare the niceness of two tasks; used by qsort(3) */
 static int
 comparetask(const void *a, const void *b)
 {
@@ -392,7 +467,7 @@ comparetask(const void *a, const void *b)
 	return 0;
 }
 
-/* sort tasks in agenda */
+/* compute task niceness; create array of unblocked tasks; and sort it based on niceness */
 static void
 sorttasks(struct Agenda *agenda)
 {
@@ -400,22 +475,27 @@ sorttasks(struct Agenda *agenda)
 	struct Edge *edge;
 	int cont;
 
-	/* first pass: topological sort */
-	for (task = agenda->unsort; task != NULL; task = task->unext)
-		if (!task->visited)
+	/* first pass: topological sort (also check if a task was not initialized) */
+	for (task = agenda->unsort; task != NULL; task = task->unext) {
+		if (!task->init) {
+			errx(1, "task \"%s\" mentioned but not defined", task->name);
+		}
+		if (!task->visited) {
 			visittask(agenda, task);
+		}
+	}
 
 	/* second pass: compute nicenesses */
-	for (task = agenda->stail; task != NULL; task = task->sprev)
+	for (task = agenda->stail; task != NULL; task = task->sprev) {
 		calcnice(task);
+	}
 
 	/* third pass: create array of unblocked tasks */
 	agenda->array = ecalloc(agenda->ntasks, sizeof(*agenda->array));
 	for (task = agenda->shead; task != NULL; task = task->snext) {
-		if (!task->init)
-			errx(1, "task \"%s\" mentioned but not defined", task->name);
-		if (task->done)
+		if (task->done) {
 			continue;
+		}
 		if (task->deps != NULL) {
 			cont = 0;
 			for (edge = task->deps; edge != NULL; edge = edge->next) {
@@ -431,7 +511,7 @@ sorttasks(struct Agenda *agenda)
 		agenda->array[agenda->nunblock++] = task;
 	}
 
-	/* fourth pass: sort array of unblocked tasks */
+	/* fourth pass: sort array of unblocked tasks based on niceness */
 	qsort(agenda->array, agenda->nunblock, sizeof(*agenda->array), comparetask);
 }
 
