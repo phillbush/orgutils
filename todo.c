@@ -14,7 +14,6 @@
 #define DEFNICE       3                 /* log2(DEFDAYS) */
 #define NHASH         128               /* size of hash table */
 #define MULTIPLIER    31                /* multiplier for hash table */
-#define NCOLS         10                /* number of collumns reserved for task name in long format */
 #define TODO          "TODO"
 #define DONE          "DONE"
 #define PROP_DEPS     "deps"
