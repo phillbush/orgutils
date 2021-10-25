@@ -423,16 +423,14 @@ visittask(struct Agenda *agenda, struct Task *task)
 	agenda->stail = task;
 }
 
-/* compute task niceness */
-static void
-calcnice(struct Task *task)
+/* compute niceness as log2(due - today - sub) - pri */
+static int
+calcnice(time_t due, int pri, int sub)
 {
-	struct Edge *edge;
-	int nice;
-	int ndays;
+	int ndays, nice;
 
-	ndays = (task->due != 0) ? difftime(task->due, today) / SECS_PER_DAY - 1 : DEFDAYS;
 	nice = 0;
+	ndays = ((due != 0) ? difftime(due, today) / SECS_PER_DAY - 1 : DEFDAYS) - sub;
 	if (ndays < 0) {
 		ndays = -ndays;
 		while (ndays >>= 1) {
@@ -443,14 +441,7 @@ calcnice(struct Task *task)
 			++nice;
 		}
 	}
-	nice -= task->pri;
-	if (nice < task->nice)
-		task->nice = nice;
-	for (edge = task->deps; edge != NULL; edge = edge->next) {
-		if (task->nice < edge->to->nice) {
-			edge->to->nice = task->nice;
-		}
-	}
+	return nice - pri;
 }
 
 /* compare the niceness of two tasks; used by qsort(3) */
@@ -474,6 +465,7 @@ sorttasks(struct Agenda *agenda)
 {
 	struct Task *task;
 	struct Edge *edge;
+	int nice;
 	int cont;
 
 	/* first pass: topological sort (also check if a task was not initialized) */
@@ -488,7 +480,18 @@ sorttasks(struct Agenda *agenda)
 
 	/* second pass: compute nicenesses */
 	for (task = agenda->stail; task != NULL; task = task->sprev) {
-		calcnice(task);
+		nice = calcnice(task->due, task->pri, 0);
+		if (nice < task->nice) {
+			task->nice = nice;
+			nice = calcnice(task->due, task->pri, 1);
+		} else {
+			nice = task->nice;
+		}
+		for (edge = task->deps; edge != NULL; edge = edge->next) {
+			if (nice < edge->to->nice) {
+				edge->to->nice = nice;
+			}
+		}
 	}
 
 	/* third pass: create array of unblocked tasks */
