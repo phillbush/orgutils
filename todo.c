@@ -91,9 +91,8 @@ struct Task {
 	 * of a task depends on the niceness of the tasks that depends
 	 * on it.
 	 *
-	 * The niceness of a task is the smaller value between the
-	 * niceness of the tasks that depend on it, and the log2 of the
-	 * days from now until its deadline minus the priority.
+	 * The niceness of a task is the log2 of the days from now until
+	 * its deadline, minus the priority.
 	 *
 	 * Tasks without a deadline are considered to be due in eight
 	 * days (the power of two that is more close to the duration of
@@ -110,14 +109,36 @@ struct Task {
 	int visited;                    /* whether node was visited while sorting */
 
 	/*
-	 * The following values are read from the given files or the
-	 * standard input.
+	 * The deadline of the task is represented by a time_t field
+	 * with the time for the middle of the due date.  The number
+	 * of days from today until this deadline is stored in the
+	 * ndays field.  The priority of a task, represented by the
+	 * pri field, can be -1, 0, or +1.
+	 *
+	 * The ndays and the priority of a task are computed from the
+	 * input information, but can be modified at runtime.  The ndays
+	 * field can be inherited from the dependents as their value of
+	 * ndays minus one.  The pri field of a task is the larger value
+	 * between its current value and the pri of a dependent.
 	 */
 	time_t due;                     /* due date, at 12:00 */
+	int ndays;                      /* due date - today, in days */
 	int pri;                        /* priority */
+
+	/*
+	 *
+	 */
 	int done;                       /* whether task is marked as done */
-	char *date;                     /* due date, in format YYYY-MM-DD*/
+
+	/*
+	 * Tasks are identified by the following field.
+	 */
 	char *name;                     /* task name */
+
+	/*
+	 * The following fields are only used when printing the task.
+	 */
+	char *date;                     /* due date, in format YYYY-MM-DD*/
 	char *desc;                     /* task description */
 };
 
@@ -425,12 +446,11 @@ visittask(struct Agenda *agenda, struct Task *task)
 
 /* compute niceness as log2(due - today - sub) - pri */
 static int
-calcnice(time_t due, int pri, int sub)
+calcnice(int ndays, int pri)
 {
-	int ndays, nice;
+	int nice;
 
 	nice = 0;
-	ndays = ((due != 0) ? difftime(due, today) / SECS_PER_DAY - 1 : DEFDAYS) - sub;
 	if (ndays < 0) {
 		ndays = -ndays;
 		while (ndays >>= 1) {
@@ -465,31 +485,31 @@ sorttasks(struct Agenda *agenda)
 {
 	struct Task *task;
 	struct Edge *edge;
-	int nice;
 	int cont;
 
-	/* first pass: topological sort (also check if a task was not initialized) */
+	/* first pass: topological sort (also compute ndays and check if task was not initialized) */
 	for (task = agenda->unsort; task != NULL; task = task->unext) {
 		if (!task->init) {
 			errx(1, "task \"%s\" mentioned but not defined", task->name);
 		}
+		task->ndays = (task->due != 0) ? difftime(task->due, today) / SECS_PER_DAY - 1 : DEFDAYS;
 		if (!task->visited) {
 			visittask(agenda, task);
 		}
 	}
 
-	/* second pass: compute nicenesses */
+	/* second pass: compute nicenesses; and reset priority and ndays of dependencies if necessary */
 	for (task = agenda->stail; task != NULL; task = task->sprev) {
-		nice = calcnice(task->due, task->pri, 0);
-		if (nice < task->nice) {
-			task->nice = nice;
-			nice = calcnice(task->due, task->pri, 1);
-		} else {
-			nice = task->nice;
-		}
+		task->nice = calcnice(task->ndays, task->pri);
 		for (edge = task->deps; edge != NULL; edge = edge->next) {
-			if (nice < edge->to->nice) {
-				edge->to->nice = nice;
+			if (task->due != 0) {
+				if (edge->to->due == 0 || task->ndays <= edge->to->ndays) {
+					edge->to->ndays = task->ndays - 1;
+				}
+				edge->to->due = 1;
+			}
+			if (task->pri > edge->to->pri) {
+				edge->to->pri = task->pri;
 			}
 		}
 	}
