@@ -108,7 +108,7 @@ settoday(time_t *today, int *after)
 static int
 isseparator(int c)
 {
-	return c == '-' || c == '.' || c == '/' || c == ' ';
+	return c == '-' || c == '.' || c == '/';
 }
 
 /* get patterns for event s; also return its name */

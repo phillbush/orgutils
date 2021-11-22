@@ -83,7 +83,7 @@ fi
 if [ "$events" -ne 0 ]
 then
 	echo "Events:"
-	calendar -l -B"$(( wday - 1 ))" -A"$(( 7 - wday ))" -t"$year$month$mday" $CALENDAR 2>/dev/null | striphome
+	calendar -l -B"$(( wday - 1 ))" -A"$(( 7 - wday ))" -t"$year$month$mday" $CALENDAR | striphome
 	echo ""
 fi
 
@@ -91,7 +91,7 @@ fi
 if [ "$tasks" -ne 0 ]
 then
 	echo "Tasks:"
-	todo $todoopts -l $TODO 2>/dev/null | striphome
+	todo $todoopts -l $TODO | striphome
 fi
 
 exit 0
