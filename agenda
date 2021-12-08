@@ -69,21 +69,27 @@ time="$(( $(date +%s) + week * 7 * 24 * 60 * 60 ))"
 mday="$(perl -le 'my $n = (localtime($ARGV[0]))[3]; print $n' "$time")"
 month="$(perl -le 'my $n = (localtime($ARGV[0]))[4] + 1; print $n' "$time")"
 year="$(perl -le 'my $n = (localtime($ARGV[0]))[5] + 1900; print $n' "$time")"
-wday="$(perl -le 'my $n = (localtime($ARGV[0]))[6]; print $n' "$time")"
-[ "$wday" -eq 0 ] && wday=7
 
 # display calendar
 if [ "$calendar" -ne 0 ]
 then
-	cal -m "$month" "$year" | sed '/^ *$/d'
+	cal -m "$month" "$year" |\
+	sed -r "$(printf '3,$ s/[[:<:]]%s[[:>:]]/\033[7m&\033[0m/' "$mday")"
 	echo ""
 fi
+
+w="$(perl -le 'my $n = (localtime($ARGV[0]))[6]; print $n' "$time")"
+[ "$w" -eq 0 ] && w=7
+time="$(( time - (w - 1) * 24 * 60 * 60 ))"
+mday="$(perl -le 'my $n = (localtime($ARGV[0]))[3]; print $n' "$time")"
+month="$(perl -le 'my $n = (localtime($ARGV[0]))[4] + 1; print $n' "$time")"
+year="$(perl -le 'my $n = (localtime($ARGV[0]))[5] + 1900; print $n' "$time")"
 
 # display events
 if [ "$events" -ne 0 ]
 then
 	echo "Events:"
-	calendar -l -B"$(( wday - 1 ))" -A"$(( 7 - wday ))" -t"$year$month$mday" $CALENDAR | striphome
+	calendar -l -T"$year-$month-$mday" -n6 $CALENDAR | striphome
 	echo ""
 fi
 

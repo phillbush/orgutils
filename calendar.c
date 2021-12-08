@@ -10,37 +10,28 @@
 #include <unistd.h>
 #include "util.h"
 
-#define HOME          "HOME"
-#define DAYS_PER_WEEK 7
-#define MAX_DAYS      35
-#define YEAR_ZERO     1900
-#define isleap(y)     ((!((y) % 4) && ((y) % 100)) || !((y) % 400))
-
-/* day or day pattern */
-struct Day {
+/* day pattern */
+struct DPattern {
 	/*
-	 * This structure express both a day and a day pattern.  For
-	 * convenience, let's express a Day entry as YYYY-MM-DD-m-w,
-	 * where:
+	 * This structure express a day pattern.  For convenience, let's
+	 * express a DPattern entry as YYYY/MM/DD/m/w, where:
 	 * - year is YYYY (1 to INT_MAX)
 	 * - month is MM (1 to 12)
 	 * - monthday is DD (1 to 31)
 	 * - monthweek is m (-5 to 5)
 	 * - weekday is w (1-Monday to 7-Sunday)
 	 *
-	 * A day is expressed with all values nonzero.  For example,
-	 * 2020/03/11/2/3 represents 11 March 2020, which was a
-	 * Wednesday (3) on the second week of March.  This date can
-	 * also be represented as 2020/03/11/-4/3, because this date
-	 * was on the fourth to last week of that month.
-	 *
-	 * A struct Day pattern can have any value as zero.  A zero
-	 * value matches anything.  For example:
+	 * For example, 2020/03/11/2/3 matches 11 March 2020, which was
+	 * a Wednesday (3) on the second week of March.  This date can
+	 * also be matched by 2020/03/11/-4/3, because this date was on
+	 * the fourth to last week of that month.  A zero value matches
+	 * anything.  For example:
 	 * - 0000/12/25/0/0 matches 25 December of every year.
 	 * - 0000/05/00/2/7 matches the second Sunday of May.
 	 * - 2020/03/11/2/3 matches 11 March 2020.
 	 */
-	struct Day *next;       /* pointer to next day on linked list */
+
+	struct DPattern *next;          /* pointer to next day on linked list */
 	int year;
 	int month;
 	int monthday;
@@ -50,58 +41,23 @@ struct Day {
 
 /* event */
 struct Event {
-	struct Event *next;     /* pointer to next event on linked list */
-	struct Day *days;       /* list of day patterns */
-	char *name;             /* event name */
+	struct Event *next;             /* pointer to next event on linked list */
+	struct DPattern *days;             /* list of day patterns */
+	char *name;                     /* event name */
+	char *filename;                 /* file event came from */
 };
 
-/* table of day in month, indexed by whether year is leap and month number */
-static const int days_in_month[2][13] = {
-	{0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31},
-	{0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31},
+/* collection of events */
+struct Calendar {
+	struct Event *head, *tail;      /* pointers to singly linked list of events */
 };
-
-static char *home = NULL;
 
 /* show usage and exit */
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: calendar [-lPpy] [-A num] [-B num] [-t yyyymmdd] [-N num] [file ...]\n");
+	(void)fprintf(stderr, "usage: calendar [-l] [-T YYYY-MM-DD] [-n num] [file ...]\n");
 	exit(1);
-}
-
-/* set today time for 12:00; also set number of days after today */
-static void
-settoday(time_t *today, int *after)
-{
-
-	struct tm *tmorig;
-	struct tm tm;
-	time_t t;
-
-	if ((t = time(NULL)) == -1)
-		err(1, NULL);
-	if ((tmorig = localtime(&t)) == NULL)
-		err(1, NULL);
-	tm = *tmorig;
-	tm.tm_hour = MIDDAY;
-	tm.tm_min = 0;
-	tm.tm_sec = 0;
-	tm.tm_isdst = -1;
-	if ((*today = mktime(&tm)) == -1)
-		err(1, NULL);
-	switch (tm.tm_wday) {
-	case 5:
-		*after = 3;
-		break;
-	case 6:
-		*after = 2;
-		break;
-	default:
-		*after = 1;
-		break;
-	}
 }
 
 /* check if c is separator */
@@ -112,185 +68,164 @@ isseparator(int c)
 }
 
 /* get patterns for event s; also return its name */
-static struct Day *
-getpatterns(char *s, char **name)
+static int
+parseline(void *p, char *line, char *filename)
 {
+	struct Calendar *calendar = p;
+	struct Event *ev;
+	struct DPattern *patt, *oldpatt;
+	struct DPattern d;
 	struct tm tm;
-	struct Day *patt, *oldpatt;
-	struct Day d;
 	int n;
 	char *t, *end;
 
 	patt = NULL;
 	for (;;) {
-		memset(&d, 0, sizeof(d));
-		while (isspace(*(unsigned char *)s)) {
-			s++;
-		}
-		n = strtol(s, &end, 10);
+		d = (struct DPattern){
+			.next = NULL,
+			.year = 0,
+			.month = 0,
+			.monthday = 0,
+			.monthweek = 0,
+			.weekday = 0,
+		};
+		while (isspace(*(unsigned char *)line))
+			line++;
+		n = strtol(line, &end, 10);
 		if (n > 0 && isseparator(*end)) {
 			/* got numeric year or month */
 			d.month = n;
-			s = end + 1;
-			n = strtol(s, &end, 10);
+			line = end + 1;
+			n = strtol(line, &end, 10);
 			if (n > 0 && isseparator(*end)) {
 				/* got numeric month after year */
 				d.year = d.month;
 				d.month = n;
-				s = end + 1;
-			} else if ((t = strptime(s, "%b", &tm)) != NULL && isseparator(*t)){
+				line = end + 1;
+			} else if ((t = strptime(line, "%b", &tm)) != NULL && isseparator(*t)){
 				/* got month name after year */
 				d.year = d.month;
 				d.month = tm.tm_mon + 1;
-				s = t + 1;
+				line = t + 1;
 			}
-		} else if ((t = strptime(s, "%b", &tm)) != NULL && isseparator(*t)) {
+		} else if ((t = strptime(line, "%b", &tm)) != NULL && isseparator(*t)) {
 			/* got month name */
 			d.month = tm.tm_mon + 1;
-			s = t + 1;
+			line = t + 1;
 		}
-		n = strtol(s, &end, 10);
+		n = strtol(line, &end, 10);
 		if (n > 0 && *end != '\0') {
 			/* got month day */
 			d.monthday = n;
-			s = end;
+			line = end;
 		}
-		if ((t = strptime(s, "%a", &tm)) != NULL) {
+		if ((t = strptime(line, "%a", &tm)) != NULL) {
 			/* got week day */
 			d.weekday = tm.tm_wday + 1;
-			s = t;
+			line = t;
 		}
 		if (d.monthday == 0 && d.weekday == 0)
 			break;
-		n = strtol(s, &end, 10);
+		n = strtol(line, &end, 10);
 		if (n >= -5 && n <= 5 && *end != '\0') {
 			d.monthweek = n;
-			s = end;
+			line = end;
 		}
 		oldpatt = patt;
-		patt = ecalloc(1, sizeof(*patt));
+		patt = emalloc(sizeof(*patt));
 		*patt = d;
 		patt->next = oldpatt;
-		while (isspace(*(unsigned char *)s)) {
-			s++;
-		}
-		if (*s == ',') {
-			s++;
-			while (isspace(*(unsigned char *)s)) {
-				s++;
-			}
+		while (isspace(*(unsigned char *)line))
+			line++;
+		if (*line == ',') {
+			line++;
 		} else {
 			break;
 		}
 	}
-	*name = s;
-	(*name)[strcspn(*name, "\n")] = 0;
-	return patt;
-}
-
-/* get events for file fp */
-static void
-getevents(FILE *fp, char *prefix, struct Event **head, struct Event **tail)
-{
-	struct Event *ev;
-	struct Day *patt;
-	char buf[BUFSIZ];
-	char *name;
-
-	while (fgets(buf, BUFSIZ, fp) != NULL) {
-		if ((patt = getpatterns(buf, &name)) != NULL) {
-			ev = ecalloc(1, sizeof(*ev));
-			ev->next = NULL;
-			ev->days = patt;
-			ev->name = getfullname(prefix, name);
-			if (*head == NULL)
-				*head = ev;
-			if (*tail != NULL)
-				(*tail)->next = ev;
-			*tail = ev;
-		}
-	}
-}
-
-/* get week of year */
-static int
-getwofy(int yday, int wday)
-{
-	return (yday + DAYS_PER_WEEK - (wday ? (wday - 1) : (DAYS_PER_WEEK - 1))) / DAYS_PER_WEEK;
+	if (patt == NULL)
+		return -1;
+	while (isspace(*(unsigned char *)line))
+		line++;
+	ev = emalloc(sizeof(*ev));
+	ev->next = NULL;
+	ev->days = patt;
+	ev->name = estrdup(line);
+	ev->filename = filename;
+	if (calendar->head == NULL)
+		calendar->head = ev;
+	if (calendar->tail != NULL)
+		calendar->tail->next = ev;
+	calendar->tail = ev;
+	return 0;
 }
 
 /* check if event occurs today */
 static int
-occurstoday(struct Event *ev, struct tm *tm, int thiswofm, int lastwofm)
+occurstoday(struct Date *today, struct DPattern *patts)
 {
-	struct Day *d;
+	struct DPattern *d;
 
-	for (d = ev->days; d != NULL; d = d->next) {
-		if ((d->year == 0 || d->year == tm->tm_year + YEAR_ZERO) &&
-		    (d->month == 0 || d->month == tm->tm_mon + 1) &&
-	       	    (d->monthday == 0 || d->monthday == tm->tm_mday) &&
-	       	    (d->weekday == 0 || d->weekday == tm->tm_wday + 1) &&
-	       	    (d->monthweek == 0 ||
-	       	     (d->monthweek < 0 && d->monthweek == -1 * (lastwofm - thiswofm - 1)) || 
-	       	     (d->monthweek == thiswofm))) {
-	       	    	return 1;
-	       	}
+	for (d = patts; d != NULL; d = d->next) {
+		if ((d->year == 0 || d->year == today->y) &&
+		    (d->month == 0 || d->month == today->m) &&
+		    (d->monthday == 0 || d->monthday == today->d) &&
+		    (d->weekday == 0 || d->weekday == today->w + 1) &&
+		    (d->monthweek == 0 ||
+		     (d->monthweek < 0 && d->monthweek == today->nmw) || 
+		     (d->monthweek == today->pmw))) {
+			return 1;
+		}
 	}
 	return 0;
 }
 
 /* print events for today and after days */
 static void
-printevents(struct Event *evs, time_t today, int after, int lflag, int yflag)
+printcalendar(struct Calendar *calendar, struct Date *today, int after, int lflag, int prefix)
 {
-	struct tm *tmorig;
 	struct tm tm;
 	struct Event *ev;
-	int wofy;       /* week of year of first day of month */
-	int thiswofm;   /* this week of current month */
-	int lastwofm;   /* last week of current month */
-	int n;
-	char buf1[BUFSIZ];
-	char buf2[BUFSIZ];
+	char buf1[128];
+	char buf2[128];
 
 	buf1[0] = buf2[0] = '\0';
 	while (after-- >= 0) {
-		tmorig = localtime(&today);
-		tm = *tmorig;
-		n = days_in_month[isleap(tm.tm_year + YEAR_ZERO)][tm.tm_mon + 1];
-		wofy = getwofy(tm.tm_yday - tm.tm_mday + 1, (tm.tm_wday - tm.tm_mday + 1 + MAX_DAYS) % DAYS_PER_WEEK);
-		thiswofm = getwofy(tm.tm_yday, tm.tm_wday) - wofy + 1;
-		lastwofm = getwofy(tm.tm_yday + n - tm.tm_mday + 1, (tm.tm_wday + n - tm.tm_mday + 1 + MAX_DAYS) % DAYS_PER_WEEK) - wofy + 1;
+		tm.tm_year = today->y - 1900;
+		tm.tm_wday = today->w;
+		tm.tm_mday = today->d;
+		tm.tm_mon = today->m - 1;
 		if (lflag) {
 			strftime(buf1, sizeof(buf1), "%A", &tm);
 			strftime(buf2, sizeof(buf2), "%d %B %Y", &tm);
 			printf("%-10s %s\n", buf1, buf2);
-		} else if (yflag) {
-			strftime(buf1, sizeof(buf1), "%Y-%m-%d", &tm);
 		} else {
 			strftime(buf1, sizeof(buf1), "%m-%d", &tm);
 		}
-		for (ev = evs; ev != NULL; ev = ev->next) {
-			if (occurstoday(ev, &tm, thiswofm, lastwofm)) {
+		for (ev = calendar->head; ev != NULL; ev = ev->next) {
+			if (occurstoday(today, ev->days)) {
 				if (!lflag)
 					printf("%s", buf1);
-				printf("\t%s\n", ev->name);
+				printf("\t");
+				if (prefix)
+					printf("%s: ", ev->filename);
+				printf("%s\n", ev->name);
 			}
 		}
-		today += SECS_PER_DAY;
+		incrdate(today);
 	}
 }
 
 /* free events, their name and day patterns */
 static void
-freeevents(struct Event *evs)
+freecalendar(struct Calendar *calendar)
 {
 	struct Event *e;
-	struct Day *d;
+	struct DPattern *d;
 
-	while (evs) {
-		e = evs;
-		evs = evs->next;
+	while (calendar->head) {
+		e = calendar->head;
+		calendar->head = calendar->head->next;
 		while (e->days) {
 			d = e->days;
 			e->days = e->days->next;
@@ -305,39 +240,33 @@ freeevents(struct Event *evs)
 int
 main(int argc, char *argv[])
 {
-	static struct Event *head, *tail;
-	FILE *fp;
-	time_t today;           /* seconds of 12:00:00 of today since epoch*/
-	int ndays;              /* number of days to adjust today */
-	int before;             /* number of days before today */
-	int after;              /* number of days after today */
-	int lflag;              /* whether to print in long format */
-	int yflag;              /* whether to print year in regular format */
-	int exitval;
+	static struct Calendar calendar = {
+		.head = NULL,
+		.tail = NULL,
+	};
+	struct Date today;
+	int after = 1;          /* number of days after today */
+	int lflag = 0;          /* whether to print in long format */
+	int exitval = 0;
 	int ch;
 
-	ndays = before = lflag = yflag = 0;
-	settoday(&today, &after);
-	home = getenv(HOME);
-	while ((ch = getopt(argc, argv, "A:B:lN:t:y")) != -1) {
+	if (gettoday(&today) == -1)
+		err(1, NULL);
+	if (today.w == FRIDAY)
+		after = 3;
+	else if (today.w == SATURDAY)
+		after = 2;
+	while ((ch = getopt(argc, argv, "ln:T:")) != -1) {
 		switch (ch) {
-		case 'A':
-			after = strtonum(optarg, 0, INT_MAX);
-			break;
-		case 'B':
-			before = strtonum(optarg, 0, INT_MAX);
-			break;
 		case 'l':
 			lflag = 1;
 			break;
-		case 'N':
-			ndays = strtonum(optarg, INT_MIN, INT_MAX);
+		case 'n':
+			after = strtonum(optarg, 0, INT_MAX);
 			break;
-		case 't':
-			today = strtotime(optarg);
-			break;
-		case 'y':
-			yflag = 1;
+		case 'T':
+			if (strtodate(&today, optarg, NULL) == -1)
+				errx(1, "improper argument date: %s", optarg);
 			break;
 		default:
 			usage();
@@ -346,29 +275,9 @@ main(int argc, char *argv[])
 	}
 	argc -= optind;
 	argv += optind;
-	today += ndays * SECS_PER_DAY;
-	after += before;
-	today -= before * SECS_PER_DAY;
-	head = tail = NULL;
-	exitval = 0;
-	if (argc == 0) {
-		getevents(stdin, NULL, &head, &tail);
-	} else {
-		for (; *argv != NULL; argv++) {
-			if (strcmp(*argv, "-") == 0) {
-				getevents(stdin, (argc > 1 ? "-" : NULL), &head, &tail);
-				continue;
-			}
-			if ((fp = fopen(*argv, "r")) == NULL) {
-				warn("%s", *argv);
-				exitval = 1;
-				continue;
-			}
-			getevents(fp, (argc > 1 ? *argv : NULL), &head, &tail);
-			fclose(fp);
-		}
-	}
-	printevents(head, today, after, lflag, yflag);
-	freeevents(head);
+	if (readinput(parseline, &calendar, argc, argv) == -1)
+		exitval = 1;
+	printcalendar(&calendar, &today, after, lflag, argc > 1);
+	freecalendar(&calendar);
 	return exitval;
 }

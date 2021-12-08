@@ -1,13 +1,11 @@
-#include <sys/time.h>
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
-#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
+
 #include "util.h"
 
 #define DEFDAYS       8                 /* default days til deadline for tasks without deadline */
@@ -22,7 +20,7 @@
 /* collection of tasks */
 struct Agenda {
 	/*
-	 * We collect tasks in five different data structures.
+	 * We collect tasks into five different data structures.
 	 * - (1) A hash table.
 	 * - (2) An unsorted singly linked list.
 	 * - (3) A directed acyclic graph.
@@ -47,7 +45,7 @@ struct Agenda {
 	 * the sorted list to extract those tasks that are not blocked
 	 * by a open (not done) task into an array of tasks (5th) that
 	 * will be sorted based on the niceness of the tasks.  This
-	 * array contain only those tasks that are unblocked.
+	 * array contains only those tasks that are unblocked.
 	 *
 	 * .The writing phase.
 	 * Finally, we loop through the array of tasks to print each
@@ -79,7 +77,7 @@ struct Task {
 	 * We use a hash table to lookup tasks or create them.  When a
 	 * task is read, it is created and initialized (its init field
 	 * is set as 1).  When a task is only mentioned as a dependency
-	 * of another task, its init field is zered.
+	 * of another task, its init field is zero.
 	 */
 	int init;                       /* whether task was initialized */
 
@@ -97,8 +95,8 @@ struct Task {
 	 * Tasks without a deadline are considered to be due in eight
 	 * days (the power of two that is more close to the duration of
 	 * a week in days).  Tasks without a priority have priority of
-	 * zero.  So, by default, the niceness of a regular task is 3
-	 * (log2(8)-0).
+	 * zero.  So, by default, the niceness of a regular task without
+	 * dependencies is 3 (log2(8)-0).
 	 */
 	int nice;                       /* task niceness; the lower the more urgent */
 
@@ -109,8 +107,8 @@ struct Task {
 	int visited;                    /* whether node was visited while sorting */
 
 	/*
-	 * The deadline of the task is represented by a time_t field
-	 * with the time for the middle of the due date.  The number
+	 * The deadline of the task is represented by the date in UNIX
+	 * julian day (number of days since UNIX epoch).  The number
 	 * of days from today until this deadline is stored in the
 	 * ndays field.  The priority of a task, represented by the
 	 * pri field, can be -1, 0, or +1.
@@ -121,22 +119,19 @@ struct Task {
 	 * ndays minus one.  The pri field of a task is the larger value
 	 * between its current value and the pri of a dependent.
 	 */
-	time_t due;                     /* due date, at 12:00 */
-	int ndays;                      /* due date - today, in days */
+	int due;                        /* due date in UNIX julian day */
+	int ndays;                      /* due date - today */
 	int pri;                        /* priority */
-
-	/*
-	 *
-	 */
 	int done;                       /* whether task is marked as done */
 
 	/*
-	 * Tasks are identified by the following field.
+	 * Tasks are identified by the following fields.
 	 */
 	char *name;                     /* task name */
+	const char *filename;           /* file task came from */
 
 	/*
-	 * The following fields are only used when printing the task.
+	 * The following fields are only used for printing the task.
 	 */
 	char *date;                     /* due date, in format YYYY-MM-DD*/
 	char *desc;                     /* task description */
@@ -148,56 +143,12 @@ struct Edge {
 	struct Task *to;                /* task the edge links to */
 };
 
-/* time for today, 12:00 */
-static time_t today;
-
-/* option flags */
-static int dflag = 0;                   /* whether to consider tasks with passed deadline as done */
-static int lflag = 0;                   /* whether to display tasks in long format */
-
 /* show usage and exit */
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: todo [-dl] [-t yyyymmdd] [file...]\n");
+	(void)fprintf(stderr, "usage: todo [-dl] [-T yyyy-mm-dd] [file...]\n");
 	exit(1);
-}
-
-/* get time for today, at 12:00 */
-static time_t
-gettoday(void)
-{
-	struct tm *tmorig;
-	struct tm tm;
-	time_t t;
-
-	if ((t = time(NULL)) == -1)
-		err(1, NULL);
-	if ((tmorig = localtime(&t)) == NULL)
-		err(1, NULL);
-	tm = *tmorig;
-	tm.tm_hour = MIDDAY;
-	tm.tm_min = 0;
-	tm.tm_sec = 0;
-	tm.tm_isdst = -1;
-	if ((t = mktime(&tm)) == -1)
-		err(1, NULL);
-	return t;
-}
-
-/* create agenda */
-static struct Agenda *
-newagenda(void)
-{
-	struct Agenda *agenda;
-
-	agenda = ecalloc(1, sizeof(*agenda));
-	agenda->htab = ecalloc(NHASH, sizeof(*(agenda->htab)));
-	agenda->array = NULL;
-	agenda->unsort = NULL;
-	agenda->shead = NULL;
-	agenda->stail = NULL;
-	return agenda;
 }
 
 /* compute hash value of string */
@@ -215,22 +166,18 @@ hash(const char *s)
 
 /* find name in agenda, creating if does not exist */
 static struct Task *
-lookupcreate(struct Agenda *agenda, const char *prefix, const char *name)
+lookupcreate(struct Agenda *agenda, const char *filename, const char *name)
 {
 	struct Task *task;
 	size_t h;
-	char *fullname;
 
-	fullname = getfullname(prefix, name);
 	h = hash(name);
-	for (task = agenda->htab[h]; task != NULL; task = task->hnext) {
-		if (strcmp(fullname, task->name) == 0) {
-			free(fullname);
+	for (task = agenda->htab[h]; task != NULL; task = task->hnext)
+		if (strcmp(name, task->name) == 0 && task->filename == filename)
 			return task;
-		}
-	}
 	task = emalloc(sizeof(*task));
-	task->name = fullname;
+	task->name = estrdup(name);
+	task->filename = filename;
 	task->hnext = agenda->htab[h];
 	task->unext = agenda->unsort;
 	agenda->htab[h] = task;
@@ -241,14 +188,14 @@ lookupcreate(struct Agenda *agenda, const char *prefix, const char *name)
 
 /* add dependencies to task; we change s */
 static void
-adddeps(struct Agenda *agenda, struct Task *task, char *prefix, char *s)
+adddeps(struct Agenda *agenda, struct Task *task, char *filename, char *s)
 {
 	struct Task *tmp;
 	struct Edge *edge;
 	char *t;
 
 	for (t = strtok(s, ","); t != NULL; t = strtok(NULL, ",")) {
-		tmp = lookupcreate(agenda, prefix, t);
+		tmp = lookupcreate(agenda, filename, t);
 		edge = emalloc(sizeof(*edge));
 		edge->next = task->deps;
 		edge->to = tmp;
@@ -256,87 +203,52 @@ adddeps(struct Agenda *agenda, struct Task *task, char *prefix, char *s)
 	}
 }
 
-/* add deadline to task */
-static void
-adddue(struct Task *task, char *s)
+/* parse line for a new task and add it into agenda; we change line; return -1 on error */
+static int
+parseline(void *p, char *line, char *filename)
 {
-	struct tm *tmorig;
-	struct tm tm;
-	time_t t;
-	char *ep;
-
-	if ((tmorig = localtime(&today)) == NULL) {
-		warn(NULL);
-		return;
-	}
-	tm = *tmorig;
-	ep = strptime(s, "%Y-%m-%d", &tm);
-	if (ep == NULL || *ep != '\0') {
-		errno = EINVAL;
-		warnx("invalid date: \"%s\"", s);
-		return;
-	}
-	tm.tm_hour = MIDDAY;
-	tm.tm_min = 0;
-	tm.tm_sec = 0;
-	tm.tm_isdst = -1;
-	if ((t = mktime(&tm)) == -1) {
-		warn(NULL);
-		return;
-	}
-	task->date = estrdup(s);
-	task->due = t;
-	if (dflag && task->due < today) {
-		task->done = 1;
-	}
-}
-
-/* parse s for a new task and add it into agenda; we change s */
-static void
-addtask(struct Agenda *agenda, char *prefix, char *s)
-{
+	struct Agenda *agenda = p;
+	struct Date d;
 	struct Task *task;
 	size_t len;
 	int done;
 	char *name, *prop, *val;
-	char *t, *end, *colon;
+	char *s, *end, *colon;
 	int pri;
 
 	/* get status */
-	while (isspace(*(unsigned char *)s))
-		s++;
+	while (isspace(*(unsigned char *)line))
+		line++;
 	done = 0;
-	if (strncmp(s, TODO, sizeof(TODO) - 1) == 0) {
-		s += sizeof(TODO) - 1;
-	} else if (strncmp(s, DONE, sizeof(DONE) - 1) == 0) {
+	if (strncmp(line, TODO, sizeof(TODO) - 1) == 0) {
+		line += sizeof(TODO) - 1;
+	} else if (strncmp(line, DONE, sizeof(DONE) - 1) == 0) {
 		done = 1;
-		s += sizeof(DONE) - 1;
+		line += sizeof(DONE) - 1;
 	}
 
 	/* get name and create task */
-	while (isspace(*(unsigned char *)s))
-		s++;
+	while (isspace(*(unsigned char *)line))
+		line++;
 	name = NULL;
-	for (t = s; *t != '\0' && !isspace(*(unsigned char *)t); t++) {
-		if (*t == ':') {
-			name = s;
-			*t = '\0';
-			s = t + 1;
+	for (s = line; *s != '\0' && !isspace(*(unsigned char *)s); s++) {
+		if (*s == ':') {
+			name = line;
+			*s = '\0';
+			line = s + 1;
 			break;
 		}
 	}
-	if (name == NULL) {
-		warnx("not a task: \"%s\"", s);
-		return;
-	}
-	task = lookupcreate(agenda, prefix, name);
+	if (name == NULL)
+		return - 1;
+	task = lookupcreate(agenda, filename, name);
 
 	/* get priority */
-	while (isspace(*(unsigned char *)s))
-		s++;
+	while (isspace(*(unsigned char *)line))
+		line++;
 	pri = 0;
-	if (s[0] == '(' && s[1] >= 'A' && s[1] <= 'C' && s[2] == ')') {
-		switch (s[1]) {
+	if (line[0] == '(' && line[1] >= 'A' && line[1] <= 'C' && line[2] == ')') {
+		switch (line[1]) {
 		case 'A':
 			pri = +1;
 			break;
@@ -347,34 +259,39 @@ addtask(struct Agenda *agenda, char *prefix, char *s)
 			pri = -1;
 			break;
 		}
-		s += 3;
+		line += 3;
 	}
 
 	/* get properties */
-	while (isspace(*(unsigned char *)s))
-		s++;
-	len = strlen(s);
-	for (t = &s[len - 1]; t >= s; t--) {
+	while (isspace(*(unsigned char *)line))
+		line++;
+	len = strlen(line);
+	for (s = &line[len - 1]; s >= line; s--) {
 		colon = NULL;
-		while (t >= s && isspace(*(unsigned char *)t))
-			t--;
-		end = t + 1;
-		while (t >= s && !isspace(*(unsigned char *)t)) {
-			if (*t == ':') {
-				colon = t;
+		while (s >= line && isspace(*(unsigned char *)s))
+			s--;
+		end = s + 1;
+		while (s >= line && !isspace(*(unsigned char *)s)) {
+			if (*s == ':') {
+				colon = s;
 				*colon = '\0';
 			}
-			t--;
+			s--;
 		}
 		if (colon) {
-			*t = '\0';
+			*s = '\0';
 			*end = '\0';
-			prop = t + 1;
+			prop = s + 1;
 			val = colon + 1;
 			if (strcmp(prop, PROP_DUE) == 0) {
-				adddue(task, val);
+				if (strtodate(&d, val, NULL) == -1) {
+					warnx("improper time format: %s", val);
+				} else {
+					task->date = estrdup(val);
+					task->due = datetojulian(&d);
+				}
 			} else if (strcmp(prop, PROP_DEPS) == 0) {
-				adddeps(agenda, task, prefix, val);
+				adddeps(agenda, task, filename, val);
 			} else {
 				warnx("unknown property \"%s\"", prop);
 			}
@@ -384,42 +301,18 @@ addtask(struct Agenda *agenda, char *prefix, char *s)
 	}
 
 	/* get description */
-	len = strlen(s);
-	for (t = &s[len - 1]; isspace(*(unsigned char *)t) && t >= s; t--)
-		*t = '\0';
+	len = strlen(line);
+	for (s = &line[len - 1]; isspace(*(unsigned char *)s) && s >= line; s--)
+		*s = '\0';
 
 	free(task->desc);               /* in case we are overriding an existing task */
-	task->desc = getfullname(prefix, s);
+	task->desc = estrdup(line);
 	task->init = 1;
 	task->pri = pri;
 	task->visited = 0;
 	task->nice = DEFNICE;
 	task->done = done;
-}
-
-/* read tasks from fp into agenda */
-static void
-readtasks(FILE *fp, struct Agenda *agenda, char *prefix, int *exitval)
-{
-	size_t spn, size;
-	char buf[BUFSIZ];
-
-	while (fgets(buf, sizeof(buf), fp) != NULL) {
-		if (*buf == '#')
-			continue;
-		size = 0;
-		while ((spn = strcspn(buf + size, "\n")) > 1 && buf[size + spn - 1] == '\\') {
-			buf[size + spn - 1] = ' ';
-			size += spn;
-			fgets(buf + size, sizeof(buf) - size, fp);
-		}
-		addtask(agenda, prefix, buf);
-	}
-	if (ferror(fp)) {
-		warn(NULL);
-		*exitval = 1;
-		clearerr(fp);
-	}
+	return 0;
 }
 
 /* visit task and their dependencies */
@@ -431,7 +324,7 @@ visittask(struct Agenda *agenda, struct Task *task)
 	if (task->visited > 1)
 		return;
 	if (task->visited == 1)
-		errx(1, "cyclic dependency between tasks");
+		errx(1, "%s: cyclic dependency between tasks", task->filename);
 	task->visited = 1;
 	for (edge = task->deps; edge != NULL; edge = edge->next)
 		visittask(agenda, edge->to);
@@ -481,7 +374,7 @@ comparetask(const void *a, const void *b)
 
 /* compute task niceness; create array of unblocked tasks; and sort it based on niceness */
 static void
-sorttasks(struct Agenda *agenda)
+sorttasks(struct Agenda *agenda, int today, int dflag)
 {
 	struct Task *task;
 	struct Edge *edge;
@@ -492,7 +385,9 @@ sorttasks(struct Agenda *agenda)
 		if (!task->init) {
 			errx(1, "task \"%s\" mentioned but not defined", task->name);
 		}
-		task->ndays = (task->due != 0) ? difftime(task->due, today) / SECS_PER_DAY - 1 : DEFDAYS;
+		if ((task->ndays = (task->due > 0) ? task->due - today : DEFDAYS) < 0 && dflag) {
+			task->done = 1;
+		}
 		if (!task->visited) {
 			visittask(agenda, task);
 		}
@@ -541,30 +436,21 @@ sorttasks(struct Agenda *agenda)
 
 /* print sorted tasks */
 static void
-printtasks(struct Agenda *agenda)
+printtasks(struct Agenda *agenda, int lflag, int prefix)
 {
 	struct Task *task;
 	size_t i;
 
 	for (i = 0; i < agenda->nunblock; i++) {
 		task = agenda->array[i];
-		if (lflag) {
-			if (printf("(%c) %s", (task->pri < 0 ? 'C' : (task->pri > 0 ? 'A' : 'B')), task->desc) < 0) {
-				break;
-			}
-			if (task->date != NULL) {
-				if (printf(" due:%s", task->date) < 0) {
-					break;
-				}
-			}
-		} else {
-			if (printf("%s", task->desc) < 0) {
-				break;
-			}
-		}
-		if (printf("\n") < 0) {
-			break;
-		}
+		if (lflag)
+			printf("(%c) ", (task->pri < 0 ? 'C' : (task->pri > 0 ? 'A' : 'B')));
+		if (lflag && prefix)
+			printf("%s: ", task->filename);
+		printf("%s", task->desc);
+		if (lflag && task->date != NULL)
+			printf(" due:%s", task->date);
+		printf("\n");
 	}
 	if (ferror(stdout)) {
 		err(1, "stdout");
@@ -592,19 +478,32 @@ freeagenda(struct Agenda *agenda)
 		free(ttmp);
 	}
 	free(agenda->array);
-	free(agenda);
 }
 
 /* todo: print next tasks */
 int
 main(int argc, char *argv[])
 {
-	static struct Agenda *agenda;
-	FILE *fp;
-	int exitval, ch;
+	static struct Agenda agenda = {
+		.array = NULL,
+		.unsort = NULL,
+		.shead = NULL,
+		.stail = NULL,
+		.nunblock = 0,
+		.ntasks = 0,
+	};
+	struct Date d;
+	int exitval = 0;
+	static int dflag = 0;           /* whether to consider tasks with passed deadline as done */
+	static int lflag = 0;           /* whether to display tasks in long format */
+	int today;                      /* today in UNIX julian day */
+	int ch;
 
-	today = gettoday();
-	while ((ch = getopt(argc, argv, "dlnt:")) != -1) {
+	if (gettoday(&d) == -1)
+		err(1, NULL);
+	today = datetojulian(&d);
+	agenda.htab = ecalloc(NHASH, sizeof(*agenda.htab));
+	while ((ch = getopt(argc, argv, "dlT:")) != -1) {
 		switch (ch) {
 		case 'd':
 			dflag = 1;
@@ -612,8 +511,10 @@ main(int argc, char *argv[])
 		case 'l':
 			lflag = 1;
 			break;
-		case 't':
-			today = strtotime(optarg);
+		case 'T':
+			if (strtodate(&d, optarg, NULL) == -1)
+				errx(1, "improper argument date: %s", optarg);
+			today = datetojulian(&d);
 			break;
 		default:
 			usage();
@@ -622,28 +523,11 @@ main(int argc, char *argv[])
 	}
 	argc -= optind;
 	argv += optind;
-	exitval = 0;
-	agenda = newagenda();
-	if (argc == 0) {
-		readtasks(stdin, agenda, NULL, &exitval);
-	} else {
-		for (; *argv != NULL; argv++) {
-			if (strcmp(*argv, "-") == 0) {
-				readtasks(stdin, agenda, (argc > 1 ? "-" : NULL), &exitval);
-				continue;
-			}
-			if ((fp = fopen(*argv, "r")) == NULL) {
-				warn("%s", *argv);
-				exitval = 1;
-				continue;
-			}
-			readtasks(fp, agenda, (argc > 1 ? *argv : NULL), &exitval);
-			fclose(fp);
-		}
-	}
-	free(agenda->htab);     /* we don't need the hash table anymore */
-	sorttasks(agenda);
-	printtasks(agenda);
-	freeagenda(agenda);
+	if (readinput(parseline, &agenda, argc, argv) == -1)
+		exitval = 1;
+	free(agenda.htab);              /* we don't need the hash table anymore */
+	sorttasks(&agenda, today, dflag);
+	printtasks(&agenda, lflag, argc > 1);
+	freeagenda(&agenda);
 	return exitval;
 }
